@@ -21,11 +21,11 @@ initGame =
 
 game :: MSF (ReaderT DTime (ReaderT Game IO)) () Game
 game = arrM (\() -> (lift . lift) updateGame)
-
-updateGame :: IO Game
-updateGame = do
-  print "updateGame"
-  return $ initGame { tick = 1 }
+  where
+    updateGame :: IO Game
+    updateGame = do
+      print "updateGame"
+      return $ initGame { tick = 1 }
   
 render :: Game -> IO ()
 render g = do
