@@ -3,13 +3,14 @@ module Main where
 
 import           SDL
 import           Control.Concurrent
+import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Reader
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.MSF
 import           Data.MonadicStreamFunction  
 import qualified Data.MonadicStreamFunction as MSF
-  
--- import           Debug.Trace
+import           Unsafe.Coerce
+
 type DTime = Double
 
 newtype Game = Game
@@ -24,28 +25,35 @@ game = arrM (\() -> (lift . lift) updateGame)
   where
     updateGame :: IO Game
     updateGame = do
-      print "updateGame"
-      return $ initGame { tick = 1 }
+      -- liftIO $ delay 1000
+      -- print "Hello, Game!"
+      return $ initGame { tick = 100 }
   
-render :: Game -> IO ()
-render g = do
-  print g
-  threadDelay 1000000
-  return ()
+renderOutput :: Renderer -> Game -> IO ()
+renderOutput renderer g = do
+  liftIO $ delay 1
+  events <- SDL.pollEvents
+  mp <- getAbsoluteMouseLocation
+  let mousePos = (\(V2 x y) -> (unsafeCoerce x,unsafeCoerce y)) (unP mp)
+  rendererDrawColor renderer $= uncurry (V4 (fromIntegral $ tick g)) mousePos 255
+  clear renderer
+  present renderer
 
-animate :: MSF (ReaderT DTime (ReaderT Game IO)) () Game -> IO ()  
-animate sf =
-  MSF.reactimate $ sense >>> sfIO >>> actuate
+animate :: SDL.Window -> MSF (ReaderT DTime (ReaderT Game IO)) () Game -> IO ()  
+animate window sf = do
+  renderer <- createRenderer window (-1) defaultRenderer
+  MSF.reactimate $ input >>> sfIO >>> output renderer
   where
-    sense   = arr (const (initGame, (0.2, ()))) :: MSF IO  b                  (Game, (DTime, ()))
-    sfIO    = runReaderS (runReaderS sf)        :: MSF IO (Game, (DTime, ()))  Game
-    actuate = arrM render                       :: MSF IO  Game               ()
+    input    = arr (const (initGame, (0.2, ()))) :: MSF IO  b                  (Game, (DTime, ()))
+    sfIO     = runReaderS (runReaderS sf)        :: MSF IO (Game, (DTime, ()))  Game
+    output r = arrM (renderOutput r)             :: MSF IO  Game               ()
   
 main :: IO ()
 main = do
   let
-    resX = 800
-    resY = 600
+    resX  = 800
+    resY  = 600
+    title = "Simple Game"
 
   initializeAll
   window   <- createWindow "Simple Game" defaultWindow
@@ -54,7 +62,5 @@ main = do
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX`div`2) (resY`div`2)))
   _ <- cursorVisible $= True
 
-  renderer <- createRenderer window (-1) defaultRenderer
-  animate game
-  putStrLn "Exiting Game"
-  
+  animate window game
+  putStrLn "Exiting Game"  
