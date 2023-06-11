@@ -14,14 +14,27 @@ import           Unsafe.Coerce
 type DTime = Double
 
 newtype Game = Game
-  { tick :: Integer } deriving Show
+  { tick :: Integer
+  } deriving Show
+
+data Options = Options
+  { resX :: Int 
+  , resY :: Int 
+  } deriving Show
 
 initGame :: Game
 initGame =
   Game { tick = -1 }
 
-game :: MSF (ReaderT DTime (ReaderT Game IO)) () Game
-game = arrM (\() -> (lift . lift) updateGame)
+initOpts :: Options
+initOpts = Options
+  {
+    resX = 800
+  , resY = 600
+  }
+
+game :: MSF (ReaderT Options (ReaderT DTime (ReaderT Game IO))) () Game
+game = arrM (\() -> (lift . lift . lift) updateGame)
   where
     updateGame :: IO Game
     updateGame = do
@@ -39,27 +52,30 @@ renderOutput renderer g = do
   clear renderer
   present renderer
 
-animate :: SDL.Window -> MSF (ReaderT DTime (ReaderT Game IO)) () Game -> IO ()  
+animate :: SDL.Window
+        -> MSF (ReaderT Options (ReaderT DTime (ReaderT Game IO))) () Game
+        -> IO ()  
 animate window sf = do
   renderer <- createRenderer window (-1) defaultRenderer
   MSF.reactimate $ input >>> sfIO >>> output renderer
   where
-    input    = arr (const (initGame, (0.2, ()))) :: MSF IO  b                  (Game, (DTime, ()))
-    sfIO     = runReaderS (runReaderS sf)        :: MSF IO (Game, (DTime, ()))  Game
-    output r = arrM (renderOutput r)             :: MSF IO  Game               ()
+    input    = arr (const (initGame, (0.2, (initOpts, ())))) :: MSF IO  b                             (Game, (DTime, (Options, ())))
+    sfIO     = runReaderS (runReaderS (runReaderS sf))          :: MSF IO (Game, (DTime, (Options, ())))  Game
+    output r = arrM (renderOutput r)                            :: MSF IO  Game                          ()
   
 main :: IO ()
 main = do
-  let
-    resX  = 800
-    resY  = 600
-    title = "Simple Game"
-
+  
+  let (resX', resY') =
+        (\os -> ( unsafeCoerce $ fromIntegral $ resX os
+                , unsafeCoerce $ fromIntegral $ resY os))
+        initOpts
+  
   initializeAll
   window   <- createWindow "Simple Game" defaultWindow
 
   _ <- setMouseLocationMode RelativeLocation
-  _ <- warpMouse (WarpInWindow window) (P (V2 (resX`div`2) (resY`div`2)))
+  _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
 
   animate window game
