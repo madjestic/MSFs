@@ -60,15 +60,16 @@ animate window sf = do
   MSF.reactimate $ input >>> sfIO >>> output renderer
   where
     input    = arr (const (initGame, (0.2, (initOpts, ())))) :: MSF IO  b                             (Game, (DTime, (Options, ())))
-    sfIO     = runReaderS (runReaderS (runReaderS sf))          :: MSF IO (Game, (DTime, (Options, ())))  Game
-    output r = arrM (renderOutput r)                            :: MSF IO  Game                          ()
+    sfIO     = runReaderS (runReaderS (runReaderS sf))       :: MSF IO (Game, (DTime, (Options, ())))  Game
+    output r = arrM (renderOutput r)                         :: MSF IO  Game                          ()
   
 main :: IO ()
 main = do
   
   let (resX', resY') =
-        (\os -> ( unsafeCoerce $ fromIntegral $ resX os
-                , unsafeCoerce $ fromIntegral $ resY os))
+        (\opts ->
+           ( unsafeCoerce $ fromIntegral $ resX opts
+           , unsafeCoerce $ fromIntegral $ resY opts))
         initOpts
   
   initializeAll
