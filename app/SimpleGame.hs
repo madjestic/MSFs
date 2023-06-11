@@ -33,7 +33,7 @@ initOpts = Options
   , resY = 600
   }
 
-game :: MSF (ReaderT Options (ReaderT DTime (ReaderT Game IO))) () Game
+game :: MSF (ReaderT Options (ReaderT DTime (StateT Game IO))) () Game
 game = arrM (\() -> (lift . lift . lift) updateGame)
   where
     updateGame :: IO Game
@@ -42,8 +42,8 @@ game = arrM (\() -> (lift . lift . lift) updateGame)
       -- print "Hello, Game!"
       return $ initGame { tick = 100 }
   
-renderOutput :: Renderer -> Game -> IO ()
-renderOutput renderer g = do
+renderOutput :: Renderer -> (Game, Game) -> IO ()
+renderOutput renderer (g,_) = do
   liftIO $ delay 1
   events <- SDL.pollEvents
   mp <- getAbsoluteMouseLocation
@@ -53,16 +53,16 @@ renderOutput renderer g = do
   present renderer
 
 animate :: SDL.Window
-        -> MSF (ReaderT Options (ReaderT DTime (ReaderT Game IO))) () Game
+        -> MSF (ReaderT Options (ReaderT DTime (StateT Game IO))) () Game
         -> IO ()  
 animate window sf = do
   renderer <- createRenderer window (-1) defaultRenderer
   MSF.reactimate $ input >>> sfIO >>> output renderer
   where
-    input    = arr (const (initGame, (0.2, (initOpts, ())))) :: MSF IO  b                             (Game, (DTime, (Options, ())))
-    sfIO     = runReaderS (runReaderS (runReaderS sf))       :: MSF IO (Game, (DTime, (Options, ())))  Game
-    output r = arrM (renderOutput r)                         :: MSF IO  Game                          ()
-  
+    input    = arr (const (initGame, (0.2, (initOpts, ())))) :: MSF IO b (Game, (DTime, (Options, ())))
+    sfIO     = runStateS (runReaderS (runReaderS game))      :: MSF IO   (Game, (DTime, (Options, ()))) (Game, Game)
+    output r = arrM (renderOutput r)                         :: MSF IO   (Game, Game) ()
+
 main :: IO ()
 main = do
   
