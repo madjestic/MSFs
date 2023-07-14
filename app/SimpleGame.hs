@@ -10,6 +10,7 @@ import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.MSF
 import           Data.MonadicStreamFunction  
 import qualified Data.MonadicStreamFunction as MSF
+import           Control.Monad.Trans.MSF.Maybe (exit)
 import           Unsafe.Coerce
 
 type DTime = Double
@@ -19,7 +20,7 @@ data Game = Game
   , quitGame :: Bool
   } deriving Show
 
-data Options = Options
+data GameSettings = GameSettings
   { resX :: Int 
   , resY :: Int 
   } deriving Show
@@ -31,8 +32,8 @@ initGame =
   , quitGame = False
   }
 
-initOpts :: Options
-initOpts = Options
+initSettings :: GameSettings
+initSettings = GameSettings
   {
     resX = 800
   , resY = 600
@@ -80,8 +81,7 @@ exit' :: Bool -> StateT Game IO ()
 exit' b = modify $ quit' b
 
 quit' :: Bool -> Game -> Game
-quit' b g = g { quitGame = b}
-
+quit' b g = g { quitGame = b }
 
 mapKeyEvents
   :: [(Scancode, StateT Game IO ())]
@@ -101,76 +101,21 @@ handleEvents = do
   return result
 
 --------------------------------------------------------------------------
+-- Game Logic --
+--------------------------------------------------------------------------
 
--- gameLoop' :: MSF (MaybeT (ReaderT Options (ReaderT DTime (StateT Game IO)))) () Game
--- gameLoop' = -- constM (MaybeT $ return Nothing) -- $ foo-- $ arrM (\t -> (lift . lift) gameLoop')
---   --arrM (\t -> (lift . lift . lift) gameLoop')
---   --arrM (\t -> (lift . lift) gameLoop')
---   --arrM (\t -> (lift) gameLoop')
---   arrM (\t -> gameLoop')
---   where
---     --foo = do undefined
---     --gameLoop' ::                  ReaderT DTime (StateT Game IO)  Game
---     --gameLoop' :: ReaderT Options (ReaderT DTime (StateT Game IO)) Game
---     --gameLoop' :: ()
---     gameLoop'  = do undefined
---       -- quitGame' <- handleEvents
---       -- get >>= (liftIO . print)
---       -- return $ initGame { tick = 0 }
+gameLoop :: MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Game
+gameLoop = 
+  gameLoop' `untilMaybe` isQuit'
 
-gameLoopLift1 :: MSF (MaybeT (ReaderT Options (ReaderT DTime (StateT Game IO)))) () Game
-gameLoopLift1 = arrM (\t -> (lift) updateGame)
-  where
-    updateGame :: ReaderT Options (ReaderT DTime (StateT Game IO))  Game
-    updateGame = undefined
+gameLoop' :: MSF (ReaderT GameSettings (ReaderT DTime (StateT Game IO))) () Game
+gameLoop' = arrM (\_ -> return initGame)
 
-gameLoopLift2 :: MSF (MaybeT (ReaderT Options (ReaderT DTime (StateT Game IO)))) () Game
-gameLoopLift2 = arrM (\t -> (lift . lift) updateGame)
-  where
-    updateGame :: ReaderT DTime (StateT Game IO)  Game
-    updateGame = undefined
+isQuit' :: MSF (ReaderT GameSettings (ReaderT DTime (StateT Game IO))) Game Bool
+isQuit' = arrM (\t -> (lift . lift) handleEvents)
 
-gameLoopLift3 :: MSF (MaybeT (ReaderT Options (ReaderT DTime (StateT Game IO)))) () Game
-gameLoopLift3 = arrM (\t -> (lift . lift . lift) updateGame)
-  where
-    updateGame :: (StateT Game IO)  Game
-    updateGame = undefined
+--------------------------------------------------------------------------
 
-gameLoopLift4 :: MSF (MaybeT (ReaderT Options (ReaderT DTime (StateT Game IO)))) () Game
-gameLoopLift4 = constM $ MaybeT $ return Nothing
-
-gameLoopLift5 :: MSF (MaybeT (ReaderT Options (ReaderT DTime (StateT Game IO)))) () Game
-gameLoopLift5 = do
-  let isExit = True
-  case isExit of
-    False -> constM $ MaybeT $ return Nothing
-    True  -> arrM (\t -> (lift . lift) updateGame)
-      where
-        updateGame = do
-          -- liftIO $ delay 1000
-          -- print "Hello, Game!"
-          return $ initGame { tick = -1 }
-
--- gameLoop :: MSF (MaybeT (ReaderT Options (ReaderT DTime (StateT Game IO)))) () Game
--- gameLoop = arrM (\t -> (lift . lift) updateGame)
---   where
---     updateGame = do
---       -- liftIO $ delay 1000
---       -- print "Hello, Game!"
---       return $ initGame { tick = 100 }
-
-gameLoop :: MSF (MaybeT (ReaderT Options (ReaderT DTime (StateT Game IO)))) () Game
-gameLoop = do
-  let isExit = True
-  case isExit of
-    True  -> constM $ MaybeT $ return Nothing
-    False -> arrM (\t -> (lift . lift) updateGame)
-      where
-        updateGame = do
-          -- liftIO $ delay 1000
-          -- print "Hello, Game!"
-          return $ initGame { tick = 100 }
-  
 renderOutput :: Renderer -> (Game, Maybe Game) -> IO ()
 renderOutput renderer (_,Nothing) = quit
 renderOutput renderer (_,Just g1) = do
@@ -183,15 +128,15 @@ renderOutput renderer (_,Just g1) = do
   present renderer
 
 animate :: SDL.Window
-        -> MSF (MaybeT (ReaderT Options (ReaderT DTime (StateT Game IO)))) () Game
+        -> MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Game
         -> IO ()  
 animate window sf = do
   renderer <- createRenderer window (-1) defaultRenderer
   MSF.reactimate $ input >>> sfIO >>> output renderer
   where
-    input    = arr (const (initGame, (0.2, (initOpts, ()))))            :: MSF IO b (Game, (DTime, (Options, ())))
-    sfIO     = runStateS (runReaderS (runReaderS (runMaybeS gameLoop))) :: MSF IO   (Game, (DTime, (Options, ()))) (Game, Maybe Game)
-    output r = arrM (renderOutput r)                                    :: MSF IO   (Game, Maybe Game) ()
+    input    = arr (const (initGame, (0.2, (initSettings, ()))))  :: MSF IO b (Game, (DTime, (GameSettings, ())))
+    sfIO     = runStateS (runReaderS (runReaderS (runMaybeS sf))) :: MSF IO   (Game, (DTime, (GameSettings, ()))) (Game, Maybe Game)
+    output r = arrM (renderOutput r)                              :: MSF IO   (Game, Maybe Game) ()
 
 main :: IO ()
 main = do
@@ -200,7 +145,7 @@ main = do
         (\opts ->
            ( unsafeCoerce $ fromIntegral $ resX opts
            , unsafeCoerce $ fromIntegral $ resY opts))
-        initOpts
+        initSettings
   
   initializeAll
   window   <- createWindow "Simple Game" defaultWindow
