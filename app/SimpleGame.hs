@@ -94,25 +94,25 @@ mapKeyEvents =
 
 handleEvents :: StateT Game IO Bool
 handleEvents = do
+  liftIO $ delay 1000
   events <- SDL.pollEvents
   updateKeyboard mapKeyEvents events
   --updateMouse
   let result = any isQuit $ fmap eventPayload events :: Bool
+  --let result = True
+  get >>= (liftIO . print)
   return result
 
 --------------------------------------------------------------------------
 -- Game Logic --
 --------------------------------------------------------------------------
 
-gameLoop :: MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Game
-gameLoop = 
-  gameLoop' `untilMaybe` isQuit'
-
-gameLoop' :: MSF (ReaderT GameSettings (ReaderT DTime (StateT Game IO))) () Game
-gameLoop' = arrM (\_ -> return initGame)
-
-isQuit' :: MSF (ReaderT GameSettings (ReaderT DTime (StateT Game IO))) Game Bool
-isQuit' = arrM (\t -> (lift . lift) handleEvents)
+game :: MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
+game = arrM (\_ -> (lift . lift . lift) g) `untilMaybe` (arrM (\_ -> (lift . lift . lift) handleEvents))
+        `catchMaybe` exit
+  where
+    g :: StateT Game IO Bool
+    g = get >>= \s -> return $ quitGame s
 
 --------------------------------------------------------------------------
 
@@ -127,6 +127,21 @@ renderOutput renderer (_,Just g1) = do
   clear renderer
   present renderer
 
+renderOutput' :: Renderer -> (Game, Maybe Bool) -> IO ()
+renderOutput' renderer (g1, s) = do
+  liftIO $ delay 100
+  liftIO $ print $ "g1 : " ++ show g1
+  liftIO $ print $ "s  : " ++ show s
+  liftIO $ print ""
+  events <- SDL.pollEvents
+  mp <- getAbsoluteMouseLocation
+  let mousePos = (\(V2 x y) -> (unsafeCoerce x,unsafeCoerce y)) (unP mp)
+  rendererDrawColor renderer $= uncurry (V4 (fromIntegral $ tick g1)) mousePos 255
+  clear renderer
+  present renderer
+--renderOutput' renderer (_,_) = quit
+  
+
 animate :: SDL.Window
         -> MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Game
         -> IO ()  
@@ -137,6 +152,17 @@ animate window sf = do
     input    = arr (const (initGame, (0.2, (initSettings, ()))))  :: MSF IO b (Game, (DTime, (GameSettings, ())))
     sfIO     = runStateS (runReaderS (runReaderS (runMaybeS sf))) :: MSF IO   (Game, (DTime, (GameSettings, ()))) (Game, Maybe Game)
     output r = arrM (renderOutput r)                              :: MSF IO   (Game, Maybe Game) ()
+
+animate' :: SDL.Window
+        -> MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
+        -> IO ()  
+animate' window sf = do
+  renderer <- createRenderer window (-1) defaultRenderer
+  MSF.reactimate $ input >>> sfIO >>> output renderer
+  where
+    input    = arr (const (initGame, (0.2, (initSettings, ()))))  :: MSF IO b (Game, (DTime, (GameSettings, ())))
+    sfIO     = runStateS (runReaderS (runReaderS (runMaybeS sf))) :: MSF IO   (Game, (DTime, (GameSettings, ()))) (Game, Maybe Bool)
+    output r = arrM (renderOutput' r)                             :: MSF IO   (Game, Maybe Bool) ()
 
 main :: IO ()
 main = do
@@ -154,5 +180,5 @@ main = do
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
 
-  animate window gameLoop
+  animate' window game
   putStrLn "Exiting Game"

@@ -94,7 +94,9 @@ ballToLeft :: Monad m => MSF (GameEnv m) () Ball
 ballToLeft =
   count >>> arrM (\n -> ((-n)+) <$> asks rightPlayerPos)
 
-hitRight :: Monad m => MSF (GameEnv m) Ball Bool
+--hitRight :: Monad m => MSF (GameEnv m) Ball Bool
+--type GameEnv m = ReaderT GameSettings (ListT m)
+hitRight :: Monad m => MSF (ReaderT GameSettings (ListT m)) Ball Bool
 hitRight = arrM (\n -> (n >=) <$> asks rightPlayerPos)
 
 hitLeft :: Monad m => MSF (GameEnv m) Ball Bool
@@ -121,12 +123,25 @@ ballLeft = singleBallLeft <+> singleBallLeft
   
 ballUntilRight :: Monad m => MSF (MaybeT (GameEnv m)) () Ball
 ballUntilRight =
-  liftTransS (ballToRight
+  liftTransS
+  (ballToRight
   >>> (arr id &&& hitRight))
   >>> arrM filterHit
   where
     filterHit (b,c) = MaybeT $ return $
       if c then Nothing else Just b
+
+ballUntilRight' :: Monad m => MSF (MaybeT (GameEnv m)) () Ball
+ballUntilRight' =
+  (liftTransS foo :: Monad m => MSF (MaybeT (GameEnv m)) () (Ball, Bool))
+  >>> arrM filterHit
+  where
+    --foo :: MSF (ReaderT GameSettings (ListT m0)) () (Ball, Bool)
+    foo :: Monad m => MSF (GameEnv m) () (Ball, Bool)
+    foo = (ballToRight >>> (arr id &&& hitRight))
+    filterHit (b,c) = MaybeT $ return $
+      if c then Nothing else Just b
+      
 
 ballUntilLeft :: Monad m => MSF (MaybeT (GameEnv m)) () Ball
 ballUntilLeft =

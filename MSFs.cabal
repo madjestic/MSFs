@@ -82,6 +82,15 @@ executable Yampa
 --     hs-source-dirs:   app
 --     default-language: Haskell2010
 
+executable Test
+    main-is:          Test.hs
+    build-depends:    base ^>=4.16.4.0
+                    , nyan-interpolation
+                    , PyF
+    hs-source-dirs:   app
+                    , src
+    default-language: Haskell2010
+
 executable SimpleGame
     main-is:          SimpleGame.hs
     build-depends:    base ^>=4.16.4.0
