@@ -39,80 +39,75 @@ initSettings = GameSettings
   , resY = 600
   }
 
---------------------------------------------------------------------------
--- Input --
---------------------------------------------------------------------------
-isQuit :: EventPayload -> Bool
-isQuit ev =
-  case ev of
-    KeyboardEvent keyboardEvent -> 
-      keyboardEventKeyMotion keyboardEvent                  == Pressed
-      && keysymScancode (keyboardEventKeysym keyboardEvent) == ScancodeQ
-    QuitEvent -> True
-    _         -> False
-
-processEvent :: (Monad m) => [(Scancode , m ())] -> Event -> m ()
-processEvent mapping e =
-  let mk = case eventPayload e of
-             KeyboardEvent keyboardEvent -> Just
-               ( keyboardEventKeyMotion keyboardEvent == Pressed
-               , keysymScancode (keyboardEventKeysym keyboardEvent))
-             _ -> Nothing
-  in case mk of
-       Nothing     -> return ()
-       Just (e', k) -> case lookup k mapping of
-                        Nothing -> return ()
-                        Just k  -> k
-
-updateKeyboard :: (Monad m) => [(Scancode, m ())] -> [Event] -> m ()
-updateKeyboard ns = mapM_ (processEvent ns)
-
-inc :: Integer -> StateT Game IO ()
-inc n = modify $ inc' n
-
-inc' :: Integer -> Game -> Game
-inc' k (Game c q) =
-  Game
-  { tick      = c + k
-  , quitGame  = q
-  }
-
-exit' :: Bool -> StateT Game IO ()
-exit' b = modify $ quit' b
-
-quit' :: Bool -> Game -> Game
-quit' b g = g { quitGame = b }
-
-mapKeyEvents
-  :: [(Scancode, StateT Game IO ())]
-mapKeyEvents =
-  [
-    (ScancodeW, inc   10)
-  , (ScancodeS, inc (-10))
-  , (ScancodeQ, exit' True)
-  ]
-
-handleEvents :: StateT Game IO Bool
-handleEvents = do
-  liftIO $ delay 1000
-  events <- SDL.pollEvents
-  updateKeyboard mapKeyEvents events
-  --updateMouse
-  let result = any isQuit $ fmap eventPayload events :: Bool
-  --let result = True
-  get >>= (liftIO . print)
-  return result
-
---------------------------------------------------------------------------
--- Game Logic --
---------------------------------------------------------------------------
-
 game :: MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
-game = arrM (\_ -> (lift . lift . lift) g) `untilMaybe` (arrM (\_ -> (lift . lift . lift) handleEvents))
-        `catchMaybe` exit
+game = arrM (\_ -> (lift . lift . lift) gameLoop)
+       `untilMaybe`
+       arrM (\_ -> (lift . lift . lift) gameQuit)
+       `catchMaybe` exit
   where
-    g :: StateT Game IO Bool
-    g = get >>= \s -> return $ quitGame s
+    gameQuit :: StateT Game IO Bool
+    gameQuit = get >>= \s -> return $ quitGame s
+
+    gameLoop :: StateT Game IO Bool
+    gameLoop = do
+      handleEvents
+        where
+          handleEvents :: StateT Game IO Bool
+          handleEvents = do
+            liftIO $ delay 1000
+            events <- SDL.pollEvents
+            updateKeyboard mapKeyEvents events
+            --updateMouse
+            let result = any isQuit $ fmap eventPayload events :: Bool
+            get >>= (liftIO . print)
+            return result
+              where
+                isQuit :: EventPayload -> Bool
+                isQuit ev =
+                  case ev of
+                    KeyboardEvent keyboardEvent -> 
+                      keyboardEventKeyMotion keyboardEvent                  == Pressed
+                      && keysymScancode (keyboardEventKeysym keyboardEvent) == ScancodeQ
+                    QuitEvent -> True
+                    _         -> False
+                
+                mapKeyEvents :: [(Scancode, StateT Game IO ())]
+                mapKeyEvents =
+                  [ (ScancodeW, inc   10)
+                  , (ScancodeS, inc (-10))
+                  , (ScancodeQ, exit' True) ]
+                  where
+                    inc :: Integer -> StateT Game IO ()
+                    inc n = modify $ inc' n
+                     
+                    inc' :: Integer -> Game -> Game
+                    inc' k (Game c q) =
+                      Game
+                      { tick      = c + k
+                      , quitGame  = q
+                      }
+                     
+                    exit' :: Bool -> StateT Game IO ()
+                    exit' b = modify $ quit' b
+                     
+                    quit' :: Bool -> Game -> Game
+                    quit' b gameLoop = gameLoop { quitGame = b }
+             
+                updateKeyboard :: (Monad m) => [(Scancode, m ())] -> [Event] -> m ()
+                updateKeyboard ns = mapM_ (processEvent ns)
+                  where
+                    processEvent :: (Monad m) => [(Scancode , m ())] -> Event -> m ()
+                    processEvent mapping e =
+                      let mk = case eventPayload e of
+                                 KeyboardEvent keyboardEvent -> Just
+                                   ( keyboardEventKeyMotion keyboardEvent == Pressed
+                                   , keysymScancode (keyboardEventKeysym keyboardEvent))
+                                 _ -> Nothing
+                      in case mk of
+                           Nothing     -> return ()
+                           Just (e', k) -> case lookup k mapping of
+                                            Nothing -> return ()
+                                            Just k  -> k
 
 --------------------------------------------------------------------------
 
