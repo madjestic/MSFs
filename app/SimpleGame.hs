@@ -40,7 +40,7 @@ initSettings = GameSettings
   , resY = 600
   }
 
-game :: MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
+game :: MSF (MaybeT (ReaderT GameSettings (ReaderT Double (StateT Game IO)))) () Bool
 game = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
   where
     gameLoop = arrM (\_ -> (lift . lift . lift) gameLoop')
@@ -110,8 +110,6 @@ game = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                             Nothing -> return ()
                                             Just k  -> k
 
---------------------------------------------------------------------------
-
 renderOutput :: Renderer -> (Game, Maybe Bool) -> IO Bool
 renderOutput renderer ( _,Nothing) = quit >> return True
 renderOutput renderer (g1,_) = do
@@ -122,17 +120,17 @@ renderOutput renderer (g1,_) = do
   clear renderer
   present renderer >> return False
   
-animate :: SDL.Window
+animate :: Window
         -> MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
-        -> IO ()  
+        -> IO ()
 animate window sf = do
   renderer <- createRenderer window (-1) defaultRenderer
   reactimateB $ input >>> sfIO >>> output renderer
   quit
   where
-    input    = arr (const (initGame, (0.2, (initSettings, ()))))  :: MSF IO b (Game, (DTime, (GameSettings, ())))
-    sfIO     = runStateS (runReaderS (runReaderS (runMaybeS sf))) :: MSF IO   (Game, (DTime, (GameSettings, ()))) (Game, Maybe Bool)
-    output r = arrM (renderOutput r)                              :: MSF IO   (Game, Maybe Bool) Bool
+    input    = arr (const (0.2, (initSettings, ())))                        :: MSF IO b (DTime, (GameSettings, ()))
+    sfIO     = runStateS_ (runReaderS (runReaderS (runMaybeS sf))) initGame :: MSF IO   (DTime, (GameSettings, ())) (Game, Maybe Bool)
+    output r = arrM (renderOutput r)                                        :: MSF IO   (Game, Maybe Bool) Bool
 
 main :: IO ()
 main = do
