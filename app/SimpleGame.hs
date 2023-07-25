@@ -11,13 +11,15 @@ import           Control.Monad.Trans.MSF
 import           Data.MonadicStreamFunction  
 import qualified Data.MonadicStreamFunction as MSF
 import           Control.Monad.Trans.MSF.Maybe (exit)
-import           Control.Monad.Trans.MSF.Except  
+import           Control.Monad.Trans.MSF.Except
+import           Foreign.C.Types  
 import           Unsafe.Coerce
 
 type DTime = Double
 
 data Game = Game
   { tick     :: Integer
+  , mpos     :: Point V2 CInt
   , quitGame :: Bool
   } deriving Show
 
@@ -30,6 +32,7 @@ initGame :: Game
 initGame =
   Game
   { tick     = -1
+  , mpos     = P (V2 0 0)
   , quitGame = False
   }
 
@@ -55,12 +58,12 @@ game = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
         where
           handleEvents :: StateT Game IO Bool
           handleEvents = do
-            liftIO $ delay 1000
+            liftIO $ delay 10
             events <- SDL.pollEvents
             updateKeyboard mapKeyEvents events
-            --updateMouse
+            updateMouse events
             let result = any isQuit $ fmap eventPayload events :: Bool
-            get >>= (liftIO . print)
+            --get >>= (liftIO . print)
             return result
               where
                 isQuit :: EventPayload -> Bool
@@ -80,20 +83,43 @@ game = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                   where
                     inc :: Integer -> StateT Game IO ()
                     inc n = modify $ inc' n
-                     
-                    inc' :: Integer -> Game -> Game
-                    inc' k (Game c q) =
-                      Game
-                      { tick      = c + k
-                      , quitGame  = q
-                      }
+                      where
+                        inc' :: Integer -> Game -> Game
+                        inc' k (Game c m q) =
+                          Game
+                          { tick      = c + k
+                          , mpos      = m
+                          , quitGame  = q
+                          }
                      
                     exit' :: Bool -> StateT Game IO ()
                     exit' b = modify $ quit' b
                      
                     quit' :: Bool -> Game -> Game
                     quit' b gameLoop' = gameLoop' { quitGame = b }
-             
+
+                updateMouse  :: [Event] -> StateT Game IO ()
+                updateMouse = mapM_ processEvent 
+                  where
+                    processEvent :: Event -> StateT Game IO ()
+                    processEvent e =
+                      let mk = case eventPayload e of
+                            MouseMotionEvent mouseEvent -> Just (mouseMotionEventPos mouseEvent)
+                            _ -> Nothing
+                      in case mk of
+                        Nothing   -> return ()
+                        Just vpos -> mmove (unsafeCoerce vpos)
+                                     where
+                                       mmove :: Point V2 CInt -> StateT Game IO ()
+                                       mmove pos = modify $ mmove' pos
+                                         where
+                                           mmove' :: Point V2 CInt -> Game -> Game
+                                           mmove' pos (Game c m q) =
+                                             Game
+                                             { tick     = c
+                                             , mpos     = pos
+                                             , quitGame = q }
+  
                 updateKeyboard :: (Monad m) => [(Scancode, m ())] -> [Event] -> m ()
                 updateKeyboard ns = mapM_ (processEvent ns)
                   where
@@ -105,17 +131,15 @@ game = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                    , keysymScancode (keyboardEventKeysym keyboardEvent))
                                  _ -> Nothing
                       in case mk of
-                           Nothing     -> return ()
-                           Just (e', k) -> case lookup k mapping of
-                                            Nothing -> return ()
-                                            Just k  -> k
+                        Nothing     -> return ()
+                        Just (_, k) -> case lookup k mapping of
+                                          Nothing -> return ()
+                                          Just k  -> k
 
 renderOutput :: Renderer -> (Game, Maybe Bool) -> IO Bool
 renderOutput renderer ( _,Nothing) = quit >> return True
 renderOutput renderer (g1,_) = do
-  events <- SDL.pollEvents
-  mp <- getAbsoluteMouseLocation
-  let mousePos = (\(V2 x y) -> (unsafeCoerce x,unsafeCoerce y)) (unP mp)
+  let mousePos = (\(V2 x y) -> (unsafeCoerce x,unsafeCoerce y)) (unP (mpos g1))
   rendererDrawColor renderer $= uncurry (V4 (fromIntegral $ tick g1)) mousePos 255
   clear renderer
   present renderer >> return False
