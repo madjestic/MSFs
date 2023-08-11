@@ -13,8 +13,6 @@ extra-source-files: CHANGELOG.md
 
 executable MSFs
     main-is:          Main.hs
-    -- other-modules:
-    -- other-extensions:
     build-depends:    base ^>=4.16.4.0
                     , bearriver
                     , dunai
@@ -24,8 +22,6 @@ executable MSFs
 
 executable Pong1D
     main-is:          Pong1D.hs
-    -- other-modules:
-    -- other-extensions:
     build-depends:    base ^>=4.16.4.0
                     , bearriver
                     , dunai
@@ -36,8 +32,6 @@ executable Pong1D
 
 executable Pong1DRef
     main-is:          Pong1DRef.hs
-    -- other-modules:
-    -- other-extensions:
     build-depends:    base ^>=4.16.4.0
                     , bearriver
                     , dunai
@@ -47,8 +41,6 @@ executable Pong1DRef
 
 executable Yampa
     main-is:          Yampa.hs
-    -- other-modules:
-    -- other-extensions:
     build-depends:    base ^>=4.16.4.0
                     , bearriver
                     , dunai
@@ -56,32 +48,6 @@ executable Yampa
     hs-source-dirs:   app
     default-language: Haskell2010
             
--- executable Rhine
---     main-is:          Rhine.hs
---     -- other-modules:
---     -- other-extensions:
---     build-depends:    base ^>=4.16.4.0
---                     -- , bearriver
---                     , dunai
---                     , transformers
---                     , rhine
---     hs-source-dirs:   app
---     default-language: Haskell2010
-
--- executable Game
---     main-is:          Game.hs
---     -- other-modules:
---     -- other-extensions:
---     build-depends:    base ^>=4.16.4.0
---                     -- , bearriver
---                     , dunai
---                     , transformers
---                     , rhine
---                     , random
---                     , vector-sized
---     hs-source-dirs:   app
---     default-language: Haskell2010
-
 executable Test
     main-is:          Test.hs
     build-depends:    base ^>=4.16.4.0
@@ -105,69 +71,54 @@ executable SimpleGame
 executable Mandelbrot
     main-is:          Mandelbrot.hs
     build-depends:    base ^>=4.16.4.0
-                    -- , aeson
-                    -- , aeson-pretty
-                    -- , array
                     , bytestring
-                    -- , containers
                     , dunai
-                    -- , ilist
-                    -- , JuicyPixels
-                    -- , lens
-                    -- , linear
-                    -- , locators
-                    -- , massiv
                     , OpenGL
-                    -- , random
-                    -- , simple-affine-space
                     , sdl2
-                    -- , split
                     , text
                     , transformers
-                    -- , uuid
-                    -- , vector
-                    -- , vector-sized
                     
     other-modules:
                     LoadShaders
-    --                   Graphics.RedViz.Rendering
-    --                 , Graphics.RedViz.Backend
-    --                 , Graphics.RedViz.Camera
-    --                 , Graphics.RedViz.Controllable
-    --                 , Graphics.RedViz.Descriptor
-    --                 , Graphics.RedViz.Drawable
-    --                 , Graphics.RedViz.GLUtil
-    --                 , Graphics.RedViz.GLUtil.JuicyTextures
-    --                 , Graphics.RedViz.GLUtil.Textures
-    --                 , Graphics.RedViz.GLUtil.TypeMapping
-    --                 , Graphics.RedViz.Input.Keyboard
-    --                 , Graphics.RedViz.Input.Mouse
-    --                 , Graphics.RedViz.LoadShaders
-    --                 , Graphics.RedViz.Material
-    --                 , Graphics.RedViz.Object
-    --                 , Graphics.RedViz.Texture
-    --                 , Graphics.RedViz.Utils
-    --                 , Graphics.RedViz.VAO
-    --                 , Graphics.RedViz.Widget
-
-    -- other-extensions:
                     
     hs-source-dirs:   app
                     , src
     default-language: Haskell2010
-    
 
--- executable Live
---     main-is:          Live.hs
---     -- other-modules:
---     -- other-extensions:
---     build-depends:    base ^>=4.16.4.0
---                     -- , bearriver
---                     , dunai
---                     , transformers
---                     , essence-of-live-coding
---                     --, rhine
---                     --, random
---                     --, vector-sized
---     hs-source-dirs:   app
---     default-language: Haskell2010                    
+executable Mandelbrot_glTF
+    main-is:          Mandelbrot_glTF.hs
+    build-depends:    base ^>=4.16.4.0
+                    , bytestring
+                    , dunai
+                    , OpenGL
+                    , sdl2
+                    , text
+                    , transformers
+                    , gltf-codec
+                    , gltf-loader
+                    , microlens
+                    , vector
+                    
+    other-modules:
+                    LoadShaders
+                    
+    hs-source-dirs:   app
+                    , src
+    default-language: Haskell2010
+
+executable Test_glTF
+    main-is:          Test_glTF.hs
+    build-depends:    base ^>=4.16.4.0
+                    , bytestring
+                    , linear
+                    , gltf-codec
+                    , gltf-loader
+                    , microlens
+                    , vector
+                    
+    other-modules:
+                    --LoadShaders
+                    
+    hs-source-dirs:   app
+                    , src
+    default-language: Haskell2010        
