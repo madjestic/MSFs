@@ -87,6 +87,7 @@ executable Mandelbrot
 
 executable Mandelbrot_glTF
     main-is:          Mandelbrot_glTF.hs
+    ghc-options:    -fprint-potential-instances
     build-depends:    base ^>=4.16.4.0
                     , bytestring
                     , dunai
@@ -98,13 +99,220 @@ executable Mandelbrot_glTF
                     , gltf-loader
                     , microlens
                     , vector
+                    , StateVar
+                    , keid-resource-gltf
+                    , keid-core
+                    -- , safe-exceptions
+                    -- , filepath
+                    -- , unordered-containers
+                    , geomancy
+                    -- , vector
+                    , rio
+                    , gl-block
+                    , vector
                     
     other-modules:
                     LoadShaders
+                  , Load_glTF
+                  , Model_glTF
+                  --, Resource.Gltf.Load
                     
-    hs-source-dirs:   app
-                    , src
-    default-language: Haskell2010
+    hs-source-dirs:
+                    app
+                  , src
+    default-extensions:
+                    ImportQualifiedPost
+                    BlockArguments
+                    LambdaCase
+                    NamedFieldPuns
+                    OverloadedStrings
+                    RankNTypes
+                    RecordWildCards
+                    ScopedTypeVariables
+                    TupleSections
+                    TypeApplications
+                    DerivingStrategies
+                    DerivingVia
+                    DeriveGeneric
+
+                                                              
+    default-language:
+                    Haskell2010
+
+library
+  exposed-modules:
+      Load_glTF
+      Model_glTF 
+      --Scene_glTF 
+  other-modules:
+      --Paths_keid_resource_gltf
+  hs-source-dirs:
+      src
+  default-extensions:
+      NoImplicitPrelude
+      ApplicativeDo
+      BangPatterns
+      BinaryLiterals
+      BlockArguments
+      ConstrainedClassMethods
+      ConstraintKinds
+      DataKinds
+      DefaultSignatures
+      DeriveDataTypeable
+      DeriveFunctor
+      DeriveGeneric
+      DeriveLift
+      DeriveTraversable
+      DerivingStrategies
+      DerivingVia
+      DuplicateRecordFields
+      EmptyCase
+      EmptyDataDeriving
+      ExistentialQuantification
+      ExplicitForAll
+      FlexibleContexts
+      FlexibleInstances
+      FunctionalDependencies
+      GADTs
+      GeneralizedNewtypeDeriving
+      HexFloatLiterals
+      ImportQualifiedPost
+      InstanceSigs
+      KindSignatures
+      LambdaCase
+      LiberalTypeSynonyms
+      MultiParamTypeClasses
+      NamedFieldPuns
+      NamedWildCards
+      NumDecimals
+      NumericUnderscores
+      OverloadedStrings
+      PatternSynonyms
+      PostfixOperators
+      QuantifiedConstraints
+      QuasiQuotes
+      RankNTypes
+      RecordWildCards
+      ScopedTypeVariables
+      StandaloneDeriving
+      StandaloneKindSignatures
+      StrictData
+      TemplateHaskell
+      TupleSections
+      TypeApplications
+      TypeFamilies
+      TypeOperators
+      TypeSynonymInstances
+      UnicodeSyntax
+      ViewPatterns
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , containers
+    , geomancy >=0.2.6.0
+    , gl-block
+    , gltf-codec
+    , keid-core
+    , rio >=0.1.12.0
+    , vector
+  default-language: Haskell2010
+                    
+-- executable Load_glTF
+--     main-is:          Load_glTF.hs
+--     build-depends:    base ^>=4.16.4.0
+--                     , bytestring
+--                     , dunai
+--                     , OpenGL
+--                     , sdl2
+--                     , text
+--                     , transformers
+--                     , gltf-codec
+--                     , gltf-loader
+--                     , microlens
+--                     , vector
+--                     , StateVar
+--                     , keid-resource-gltf
+--                     , keid-core
+--                     , geomancy
+--                     -- , safe-exceptions
+--                     -- , filepath
+--                     -- , unordered-containers
+--                     -- , geomancy
+--                     -- , vector
+--                     , rio
+--                     , gl-block
+--                     -- , keid-core
+                    
+--     other-modules:
+--                     Model_glTF
+--                     -- LoadShaders
+--                   --, Resource.Gltf.Load
+                    
+--     hs-source-dirs:
+--                     app
+--                   , src
+                    
+--     default-extensions:
+--       NoImplicitPrelude
+--       ApplicativeDo
+--       BangPatterns
+--       BinaryLiterals
+--       BlockArguments
+--       ConstrainedClassMethods
+--       ConstraintKinds
+--       DataKinds
+--       DefaultSignatures
+--       DeriveDataTypeable
+--       DeriveFunctor
+--       DeriveGeneric
+--       DeriveLift
+--       DeriveTraversable
+--       DerivingStrategies
+--       DerivingVia
+--       DuplicateRecordFields
+--       EmptyCase
+--       EmptyDataDeriving
+--       ExistentialQuantification
+--       ExplicitForAll
+--       FlexibleContexts
+--       FlexibleInstances
+--       FunctionalDependencies
+--       GADTs
+--       GeneralizedNewtypeDeriving
+--       HexFloatLiterals
+--       ImportQualifiedPost
+--       InstanceSigs
+--       KindSignatures
+--       LambdaCase
+--       LiberalTypeSynonyms
+--       MultiParamTypeClasses
+--       NamedFieldPuns
+--       NamedWildCards
+--       NumDecimals
+--       NumericUnderscores
+--       OverloadedStrings
+--       PatternSynonyms
+--       PostfixOperators
+--       QuantifiedConstraints
+--       QuasiQuotes
+--       RankNTypes
+--       RecordWildCards
+--       ScopedTypeVariables
+--       StandaloneDeriving
+--       StandaloneKindSignatures
+--       StrictData
+--       TemplateHaskell
+--       TupleSections
+--       TypeApplications
+--       TypeFamilies
+--       TypeOperators
+--       TypeSynonymInstances
+--       UnicodeSyntax
+--       ViewPatterns
+                                                              
+--     default-language:
+--                     Haskell2010
 
 executable Test_glTF
     main-is:          Test_glTF.hs
@@ -115,6 +323,7 @@ executable Test_glTF
                     , gltf-loader
                     , microlens
                     , vector
+                    , keid-resource-gltf
                     
     other-modules:
                     --LoadShaders
