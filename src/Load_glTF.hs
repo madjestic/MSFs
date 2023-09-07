@@ -139,8 +139,7 @@ loadMeshPrimitives reverseIndices addBacksides fp = do
           Nothing ->
             throwString $ show aix <> " not present in " <> show fp-- :: IO Accessor.Accessor
           Just accessor ->
-            --print $ "accessor : " ++ show accessor >> pure accessor
-            DT.trace ("accessor : " ++ show accessor) 
+            --DT.trace ("accessor : " ++ show accessor) 
             pure accessor
 
   getBufferView <- case Root.bufferViews root of

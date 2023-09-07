@@ -24,21 +24,24 @@ import           Codec.GlTF as GlTF
 import           Codec.GlTF.Mesh as Mesh
 import           Text.GLTF.Loader as Gltf
 import           Lens.Micro
-import qualified Data.Vector as V
+import qualified Data.Vector as V hiding (head, length)
+import           Data.Foldable
 import           Data.Word
 import           GHC.Float
 import           Graphics.Rendering.OpenGL (VertexArrayObject, NumArrayIndices)
-import           Data.Foldable
 import           LoadShaders
 import           Data.StateVar as SV
 import           Codec.GlTF.Mesh (Mesh(..))
 import Load_glTF
 import Model_glTF
---import Geomancy.Vec3 qualified as Vec3
+import Geomancy.Vec4
+import Geomancy.Vec3
+import Geomancy.Vec2
 import RIO.Vector qualified as Vector
 import Codec.GlTF.Buffer qualified as Buffer
 import RIO.ByteString qualified as ByteString
 --import Data.ByteString.Unsafe qualified as ByteString
+import Data.Coerce (Coercible, coerce)  
 
 type DTime = Double
 
@@ -271,10 +274,11 @@ toDrawable' file = do
 
 toDescriptor :: FilePath -> IO Descriptor'
 toDescriptor file = do
-  (idx, vs) <- mainGltf' -- :: IO (V.Vector Word16, V.Vector (V3 Float))
-  print (idx, vs)
+  (idx, vs) <- mainGltf''' -- :: IO (V.Vector Word16, V.Vector (V3 Float))
+  --print (idx, vs)
   --d <- initResources' (fromVector vs) (unsafeCoerce <$> V.toList idx) 0
-  d <- initResources' (verts (0,0)) Main.indices 0
+  --d <- initResources' (verts (0,0)) Main.indices 0
+  d <- initResources' vs idx 0
     -- --print $ "V.toList vs : " ++ show (toVertex3 <$> V.toList vs)
   return d
 
@@ -454,8 +458,9 @@ renderOutput' window d (g1,_) = do
 
   GL.pointSize $= 10.0
   
-  drawElements GL.Points numIndices GL.UnsignedInt nullPtr
-  --return False
+  --drawElements GL.Points numIndices GL.UnsignedInt nullPtr
+  drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr  
+    --return False
   -- bindVertexArrayObject $= Just vao'
   
   -- GL.clearColor $= Color4 0 0 0 1
@@ -479,7 +484,7 @@ animate :: Window
 animate window sf = do
   --d <- toDrawable' "src/Model.gltf"
   d <- toDescriptor "src/Model.gltf"
-  print $ "d :" ++ show d
+  --print $ "d :" ++ show d
     --renderer <- createRenderer window (-1) defaultRenderer
   reactimateB $ input >>> sfIO >>> output d window
   quit
@@ -492,22 +497,22 @@ animate window sf = do
 main :: IO ()
 main = do
 
-  mainGltf'''
-  -- let (resX', resY') =
-  --       (\opts ->
-  --          ( unsafeCoerce $ fromIntegral $ resX opts
-  --          , unsafeCoerce $ fromIntegral $ resY opts))
-  --       initSettings
+  -- mainGltf'''
+  let (resX', resY') =
+        (\opts ->
+           ( unsafeCoerce $ fromIntegral $ resX opts
+           , unsafeCoerce $ fromIntegral $ resY opts))
+        initSettings
   
-  -- initializeAll
-  -- window <- openWindow "Mandelbrot + SDL2/OpenGL" (resX', resY')
+  initializeAll
+  window <- openWindow "Mandelbrot + SDL2/OpenGL" (resX', resY')
 
-  -- _ <- setMouseLocationMode RelativeLocation
-  -- _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
-  -- _ <- cursorVisible $= True
+  _ <- setMouseLocationMode RelativeLocation
+  _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
+  _ <- cursorVisible $= True
 
-  -- animate window game
-  -- putStrLn "Exiting Game"
+  animate window game
+  putStrLn "Exiting Game"
 
 mainGltf :: IO (V.Vector (V3 Float))
 mainGltf = do
@@ -550,51 +555,49 @@ mainGltf'' = do
   return prims
 
 --mainGltf''' :: IO (V.Vector Vec3.Packed)
-mainGltf''' :: IO ()
+mainGltf''' :: IO ([GLuint],[GLfloat])
 mainGltf''' = do
-  --(root, stuff) <- loadMeshPrimitives False False "src/Model.gltf"
-  (root, meshPrimitives) <- (loadMeshPrimitives False False "src/Model.gltf")
-  -- head $ V.toList $ (\(Just x) -> x) (meshes root)
-  -- prim0 = head $ V.toList $ Mesh.primitives $ head $ V.toList $ (\(Just x) -> x) (meshes root)
-  -- aix = (\(Just x) -> x) (Mesh.indices prim0)
+  (root, meshPrimitives) <- loadMeshPrimitives False False "src/Model.gltf"
   let
     (maybeMatTuple, stuff) = head $ V.toList $ head $ V.toList meshPrimitives
     positions = sPositions stuff
-    indices   = sIndices stuff
-  print indices
-  return ()
+    indices   = sIndices   stuff
+    idx       = fromIntegral <$> V.toList indices
+    attrs     = sAttrs     stuff
+    uvs       = vaTexCoord <$> V.toList attrs
+    colors    = vaRGBA     <$> V.toList attrs
+    normals   = vaNormal   <$> V.toList attrs
+  --print $ "positions :" ++ show positions
+  print $ "indices   :" ++ show indices
+  -- print $ "attrs     :" ++ show attrs
+  -- print $ "uvs       :" ++ show uvs
+  -- print $ "colors    :" ++ show colors
+  -- print $ "normals   :" ++ show normals
 
--- --getBuffer :: Buffer.BufferIx -> IO ()
--- getBuffer bix =
---   --case (buffers :: Vector ByteString.ByteString) V.!? Buffer.unBufferIx (bix :: Buffer.BufferIx) of
---   case ((buffers :: Vector ByteString.ByteString) Vector.!? Buffer.unBufferIx bix :: Maybe ByteString.ByteString) of  
---     Nothing -> undefined
---       -- print $ show bix <> " not present in " -- :: IO ByteString
---     Just buffer -> undefined
---       -- pure buffer
+  let
+    ps = fromVec3' . unPacked <$> V.toList positions
+    cs = fromVec4' <$> colors
+    ts = fromVec2' <$> uvs
+    d = (,,) <$.> ps <*.> cs <*.> ts
+    --verts = concatMap (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,ca,u,v]) (V.toList ((d!!) <$> (fromIntegral <$> indices)))
+    verts = concatMap (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,u,v]) (V.toList ((d!!) <$> (fromIntegral <$> indices)))
+  print ps
+  return (idx, verts)
 
-  -- getAccessor <- case Root.accessors root of
-  --   Nothing ->
-  --     throwString $ "No accessors in " <> fp
-  --   Just accessors ->
-  --     pure \aix ->
-  --       case accessors Vector.!? Accessor.unAccessorIx aix of
-  --         Nothing ->
-  --           throwString $ show aix <> " not present in " <> show fp-- :: IO Accessor.Accessor
-  --         Just accessor ->
-  --           pure accessor
+(<$.>) :: (a -> b) -> [a] -> [b]
+(<$.>) = fmap
 
-  -- getBufferView <- case Root.bufferViews root of
-  --   Nothing ->
-  --     throwString $ "No buffer views in " <> fp
-  --   Just bufferViews ->
-  --     pure \bvix ->
-  --       case bufferViews Vector.!? BufferView.unBufferViewIx bvix of
-  --         Nothing ->
-  --           throwString $ show bvix <> " not present in " <> show fp-- :: IO BufferView.BufferView
-  --         Just bufferView ->
-  --           pure bufferView
+(<*.>) :: [a -> b] -> [a] -> [b]
+(<*.>) = zipWith ($)
+
+fromVec2' :: Vec2 -> (Float, Float)
+fromVec2' xy = withVec2 (coerce xy) (,)
   
+fromVec3' :: Vec3 -> (Float, Float, Float)
+fromVec3' xyz = withVec3 (coerce xyz) (,,)
+
+fromVec4' :: Vec4 -> (Float, Float, Float, Float)
+fromVec4' xyzw = withVec4 (coerce xyzw) (,,,)
 
 loadGltfFile :: IO (Either Errors Gltf)
 loadGltfFile = Gltf.fromJsonFile "src/Model.gltf"
