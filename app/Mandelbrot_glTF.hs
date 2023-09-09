@@ -580,8 +580,7 @@ mainGltf''' = do
     ts = fromVec2' <$> uvs
     d = (,,) <$.> ps <*.> cs <*.> ts
     --verts = concatMap (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,ca,u,v]) (V.toList ((d!!) <$> (fromIntegral <$> indices)))
-    verts = concatMap (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,u,v]) (V.toList ((d!!) <$> (fromIntegral <$> indices)))
-  print ps
+    verts = concatMap (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,u,v]) d
   return (idx, verts)
 
 (<$.>) :: (a -> b) -> [a] -> [b]
