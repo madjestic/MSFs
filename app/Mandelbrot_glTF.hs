@@ -40,7 +40,6 @@ import Geomancy.Vec2
 import RIO.Vector qualified as Vector
 import Codec.GlTF.Buffer qualified as Buffer
 import RIO.ByteString qualified as ByteString
---import Data.ByteString.Unsafe qualified as ByteString
 import Data.Coerce (Coercible, coerce)  
 
 type DTime = Double
@@ -56,24 +55,24 @@ data GameSettings = GameSettings
   , resY :: Int 
   } deriving Show
 
-indices :: [GLuint]
-indices =
-  [          -- Note that we start from 0!
-    0, 1, 3, -- First Triangle
-    1, 2, 3  -- Second Triangle
-  ]
+-- indices :: [GLuint]
+-- indices =
+--   [          -- Note that we start from 0!
+--     0, 1, 3, -- First Triangle
+--     1, 2, 3  -- Second Triangle
+--   ]
 
-verts :: (Double, Double) -> [GLfloat]
-verts p0 =
-  [ -- | positions    -- | colors      -- | uv
-    1.0,  1.0, 0.0,   1.0, 0.0, 0.0,   1.0 + tx, 1.0 + ty,
-    1.0, -1.0, 0.0,   0.0, 1.0, 0.0,   1.0 + tx, 0.0 + ty,
-   -1.0, -1.0, 0.0,   0.0, 0.0, 1.0,   0.0 + tx, 0.0 + ty,
-   -1.0,  1.0, 0.0,   0.0, 0.0, 0.0,   0.0 + tx, 1.0 + ty
-  ]
-  where
-    tx = (\ (x,y)-> realToFrac x) p0 :: GLfloat
-    ty = (\ (x,y)-> realToFrac y) p0 :: GLfloat
+-- verts :: (Double, Double) -> [GLfloat]
+-- verts p0 =
+--   [ -- | positions    -- | colors      -- | uv
+--     1.0,  1.0, 0.0,   1.0, 0.0, 0.0,   1.0 + tx, 1.0 + ty,
+--     1.0, -1.0, 0.0,   0.0, 1.0, 0.0,   1.0 + tx, 0.0 + ty,
+--    -1.0, -1.0, 0.0,   0.0, 0.0, 1.0,   0.0 + tx, 0.0 + ty,
+--    -1.0,  1.0, 0.0,   0.0, 0.0, 0.0,   0.0 + tx, 1.0 + ty
+--   ]
+--   where
+--     tx = (\ (x,y)-> realToFrac x) p0 :: GLfloat
+--     ty = (\ (x,y)-> realToFrac y) p0 :: GLfloat
 
 initGame :: Game
 initGame =
@@ -210,9 +209,7 @@ openWindow title (sizex,sizey) = do
     
     return window
 
-type Drawable   = [Vertex4 Double]
-type Drawable'   = ([Int], [Vertex3 Double])
---type Drawable''   = ([GLuint], VertexArrayObject)
+type Drawable   = ([Int], [Vertex3 Double])
 type Pos        = (Double, Double)  
 data Shape      = Square Pos Double
                 deriving Show
@@ -232,20 +229,20 @@ toVertex3 (V3 x y z)   = Vertex3 (float2Double x) (float2Double y) (float2Double
 fromVector :: V.Vector (V3 Float) -> [GLfloat]
 fromVector vs = concatMap (\(V3 x y z) -> [x,y,z]) (V.toList vs)
 
-square :: Pos -> Double -> [Pos]
-square pos side = [p1, p2, p3,
-                   p1, p3, p4]
-    where          
-        x = fst pos
-        y = snd pos
-        r = side/2 
-        p1 = (x + r, y + r)
-        p2 = (x - r, y + r)
-        p3 = (x - r, y - r)
-        p4 = (x + r, y - r)
+-- square :: Pos -> Double -> [Pos]
+-- square pos side = [p1, p2, p3,
+--                    p1, p3, p4]
+--     where          
+--         x = fst pos
+--         y = snd pos
+--         r = side/2 
+--         p1 = (x + r, y + r)
+--         p2 = (x - r, y + r)
+--         p3 = (x - r, y - r)
+--         p4 = (x + r, y - r)
 
-toPos :: Shape -> [Pos]
-toPos (Square pos side) =  square pos side
+-- toPos :: Shape -> [Pos]
+-- toPos (Square pos side) =  square pos side
 
 data Projection = Planar                
                 deriving Show 
@@ -261,88 +258,19 @@ toUV Planar =
     ps = [(1.0, 1.0),( 0.0, 1.0),( 0.0, 0.0)
          ,(1.0, 1.0),( 0.0, 0.0),( 1.0, 0.0)] :: [Pos]
 
-toDrawable :: FilePath -> IO Drawable
-toDrawable file = do
-  gltf <- mainGltf
-  return $ toVertex4'' <$> V.toList gltf
-
-toDrawable' :: FilePath -> IO Drawable'
-toDrawable' file = do
-  (idx, vs) <- mainGltf' :: IO (V.Vector Word16, V.Vector (V3 Float))
-  --print $ "V.toList vs : " ++ show (toVertex3 <$> V.toList vs)
-  return (unsafeCoerce <$> V.toList idx, toVertex3 <$> V.toList vs)
-
-toDescriptor :: FilePath -> IO Descriptor'
+toDescriptor :: FilePath -> IO Descriptor
 toDescriptor file = do
-  (idx, vs) <- mainGltf''' -- :: IO (V.Vector Word16, V.Vector (V3 Float))
-  --print (idx, vs)
-  --d <- initResources' (fromVector vs) (unsafeCoerce <$> V.toList idx) 0
-  --d <- initResources' (verts (0,0)) Main.indices 0
-  d <- initResources' vs idx 0
-    -- --print $ "V.toList vs : " ++ show (toVertex3 <$> V.toList vs)
-  return d
+  (idx, vs) <- loadGltf'
+  initResources vs idx 0
 
-data Descriptor = Descriptor VertexArrayObject ArrayIndex NumArrayIndices
+data Descriptor = Descriptor VertexArrayObject NumArrayIndices
   deriving Show
-
-data Descriptor' = Descriptor' VertexArrayObject NumArrayIndices
-  deriving Show
-
-initResources :: ([Vertex4 Double]) -> Double -> IO Descriptor
-initResources vs timer = do
-    triangles <- genObjectName
-    bindVertexArrayObject $= Just triangles
-
-    --
-    -- Declaring VBO: vertices
-    --
-    let vertices = vs
-        numVertices = length vertices
-
-    vertexBuffer <- genObjectName
-    bindBuffer ArrayBuffer $= Just vertexBuffer
-    withArray vs $ \ptr -> do
-        let size = fromIntegral (numVertices * sizeOf (head vs))
-        bufferData ArrayBuffer $= (size, ptr, StaticDraw)
-
-    let firstIndex = 0
-        vPosition = AttribLocation 0
-    vertexAttribPointer vPosition $=
-        (ToFloat, VertexArrayDescriptor 4 GL.Double 0 (bufferOffset firstIndex))
-    vertexAttribArray vPosition $= Enabled
-
-    --
-    -- Declaring VBO: UVs
-    --
-    let uv = toUV Planar
-
-    textureBuffer <- genObjectName
-    bindBuffer ArrayBuffer $= Just textureBuffer
-    withArray uv $ \ptr -> do
-        let size = fromIntegral (numVertices * sizeOf (head uv))
-        bufferData ArrayBuffer $= (size, ptr, StaticDraw)
-
-    let uvCoords = AttribLocation 1
-    vertexAttribPointer uvCoords $=
-        (ToFloat, VertexArrayDescriptor 2 GL.Double 0 (bufferOffset firstIndex))
-    vertexAttribArray uvCoords   $= Enabled
-
-    program <- loadShaders [
-        ShaderInfo VertexShader (FileSource "shaders/shader.vert"),
-        ShaderInfo FragmentShader (FileSource "shaders/shader.frag")]
-    currentProgram $= Just program
-
-    -- Set Uniforms
-    location <- GL.get (uniformLocation program "fTime")
-    uniform location $= (realToFrac timer :: GLfloat)
-
-    return $ Descriptor triangles firstIndex (fromIntegral numVertices)
 
 fromVertex3 :: Vertex3 Double -> [GLfloat]
 fromVertex3 (Vertex3 x y z) = [double2Float x, double2Float y, double2Float z]
 
-initResources' :: [GLfloat] -> [GLuint] -> Double -> IO Descriptor'
-initResources' vs idx z0 =  
+initResources :: [GLfloat] -> [GLuint] -> Double -> IO Descriptor
+initResources vs idx z0 =  
   do
     -- | VAO
     triangles <- genObjectName
@@ -360,10 +288,10 @@ initResources' vs idx z0 =
     -- | EBO
     elementBuffer <- genObjectName
     bindBuffer ElementArrayBuffer $= Just elementBuffer
-    let numIndices = length Main.indices
+    let numIndices = length idx
     withArray idx $ \ptr ->
       do
-        let indicesSize = fromIntegral (numIndices * (length Main.indices))
+        let indicesSize = fromIntegral (numIndices * (length idx))
         bufferData ElementArrayBuffer $= (indicesSize, ptr, StaticDraw)
         
     -- | Bind the pointer to the vertex attribute data
@@ -409,95 +337,43 @@ initResources' vs idx z0 =
     -- || Unload buffers
     bindVertexArrayObject         $= Nothing
 
-    return $ Descriptor' triangles (fromIntegral numIndices)
+    return $ Descriptor triangles (fromIntegral numIndices)
 
 bufferOffset :: Integral a => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
   
-renderOutput :: Window -> (Game, Maybe Bool) -> IO Bool
-renderOutput _ ( _,Nothing) = quit >> return True
-renderOutput window (g1,_) = do
+renderOutput :: Window -> Descriptor -> (Game, Maybe Bool) -> IO Bool
+renderOutput _ _ ( _,Nothing) = quit >> return True
+renderOutput window d (g1,_) = do
   let
-    --drawable = toDrawable (Square (0.0, 0.0) 1.0)
-    timer    = 0.01 * (fromIntegral $ tick g1)
-  
-  drawable <- toDrawable "src/Model.gltf"
-  (Descriptor triangles firstIndex numVertices) <- initResources drawable timer
-  --(Descriptor' triangles numVertices) <- initDescriptor drawable timer
-  
-  GL.clearColor $= Color4 0 0 0 1
-  GL.clear [ColorBuffer]
-  bindVertexArrayObject $= Just triangles
-  drawArrays GL.Triangles firstIndex numVertices
-  -- GL.pointSize $= 3.0
-  -- drawArrays GL.Points firstIndex numVertices
-
-  SDL.glSwapWindow window >> return False
-
-renderOutput' :: Window -> Descriptor' -> (Game, Maybe Bool) -> IO Bool
-renderOutput' _ _ ( _,Nothing) = quit >> return True
-renderOutput' window d (g1,_) = do
-  let
-    --drawable = toDrawable (Square (0.0, 0.0) 1.0)
     timer    = 0.01 * (fromIntegral $ tick g1)
     p0 = (0,0) :: (Double, Double)
     z0 = 0     :: Double
   
-  --drawable <- toDrawable' "src/Model.gltf"
-  --(Descriptor triangles firstIndex numVertices) <- initResources drawable timer
-  --(Descriptor' vao' numIndices') <- initResources' drawable timer
-
-  --drawable <- toDrawable "src/Model.gltf"
-  --(Descriptor' triangles numVertices) <- initDescriptor drawable timer
-  --(Descriptor' triangles numIndices) <- initResources' (verts p0) indices z0
   GL.clear [ColorBuffer, DepthBuffer]
   
-  --(Descriptor' triangles numIndices) <- toDescriptor "src/Model.gltf"
-  let (Descriptor' triangles numIndices) = d
+  let (Descriptor triangles numIndices) = d
   bindVertexArrayObject $= Just triangles
 
   GL.pointSize $= 10.0
   
-  --drawElements GL.Points numIndices GL.UnsignedInt nullPtr
   drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr  
-    --return False
-  -- bindVertexArrayObject $= Just vao'
-  
-  -- GL.clearColor $= Color4 0 0 0 1
-  -- -- GL.clear [ColorBuffer]
-  -- GL.pointSize $= 10.0
-  -- -- GL.depthMask $= Enabled
-  -- -- cullFace  $= Just Back
-  -- -- depthFunc $= Just Less
-
-  -- drawElements GL.Points numIndices' GL.UnsignedInt nullPtr
-  --drawArrays GL.Points 0 numIndices'
-  -- GL.pointSize $= 3.0
-  -- drawArrays GL.Points firstIndex numVertices
-
-  --SDL.glSwapWindow window >> return False
   glSwapWindow window >> return False
 
 animate :: Window
          -> MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
          -> IO ()
 animate window sf = do
-  --d <- toDrawable' "src/Model.gltf"
   d <- toDescriptor "src/Model.gltf"
-  --print $ "d :" ++ show d
-    --renderer <- createRenderer window (-1) defaultRenderer
   reactimateB $ input >>> sfIO >>> output d window
   quit
   where
     input    = arr (const (0.2, (initSettings, ())))                        :: MSF IO b (DTime, (GameSettings, ()))
     sfIO     = runStateS_ (runReaderS (runReaderS (runMaybeS sf))) initGame :: MSF IO   (DTime, (GameSettings, ())) (Game, Maybe Bool)
-    --output w = arrM (renderOutput w)                                        :: MSF IO   (Game, Maybe Bool) Bool
-    output w d = arrM (renderOutput' d w)                                   -- :: MSF IO   (Game, Maybe Bool) Bool
+    output w d = arrM (renderOutput d w)                                   -- :: MSF IO   (Game, Maybe Bool) Bool
 
 main :: IO ()
 main = do
-
-  -- mainGltf'''
   let (resX', resY') =
         (\opts ->
            ( unsafeCoerce $ fromIntegral $ resX opts
@@ -514,49 +390,8 @@ main = do
   animate window game
   putStrLn "Exiting Game"
 
-mainGltf :: IO (V.Vector (V3 Float))
-mainGltf = do
-  root <- loadGltfFile
-  let
-    gltf = (\(Right r) -> r) root
-    vs   = getVertices gltf
-    ids  = getIndices  gltf
-  --return (ids, vs)
-  --return (ids)
-  return vs
-  
-mainGltf' :: IO (V.Vector Word16, V.Vector (V3 Float))
-mainGltf' = do
-  root <- loadGltfFile 
-  let
-    gltf = (\(Right r) -> r) root
-    vs   = getVertices gltf
-    ids  = getIndices  gltf
-  --print $ "mainGltf' vs :" ++ show vs
-  return (ids, vs)
-  --return (ids)
-  --return (vs)
-
--- TODO : finish parsing the mesh using keid-resource-loader
---mainGltf'' :: IO (V.Vector Mesh.MeshPrimitive)
-
-mainGltf'' = do
-  --(x,y) <- loadMeshPrimitives1 False False "src/Model.gltf"
-  root  <- loadGltf "src/Model.gltf"
-  let
-    gltf    = (\(Right r) -> r) root
-    meshes' = V.toList $ (\(Just x) -> x) (meshes gltf)
-    mesh'   = head meshes'
-    prims   = primitives mesh' :: V.Vector Mesh.MeshPrimitive
-    --vs   = getVertices' gltf
-    --ids  = getIndices  gltf
-  --print $ "mainGltf' vs :" ++ show vs
-  --return (ids, vs)
-  return prims
-
---mainGltf''' :: IO (V.Vector Vec3.Packed)
-mainGltf''' :: IO ([GLuint],[GLfloat])
-mainGltf''' = do
+loadGltf' :: IO ([GLuint],[GLfloat])
+loadGltf' = do
   (root, meshPrimitives) <- loadMeshPrimitives False False "src/Model.gltf"
   let
     (maybeMatTuple, stuff) = head $ V.toList $ head $ V.toList meshPrimitives
