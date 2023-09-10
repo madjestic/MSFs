@@ -55,7 +55,7 @@ data GameSettings = GameSettings
   , resY :: Int 
   } deriving Show
 
--- indices :: [GLuint]
+-- indices :: [GLenum]
 -- indices =
 --   [          -- Note that we start from 0!
 --     0, 1, 3, -- First Triangle
@@ -269,7 +269,7 @@ data Descriptor = Descriptor VertexArrayObject NumArrayIndices
 fromVertex3 :: Vertex3 Double -> [GLfloat]
 fromVertex3 (Vertex3 x y z) = [double2Float x, double2Float y, double2Float z]
 
-initResources :: [GLfloat] -> [GLuint] -> Double -> IO Descriptor
+initResources :: [GLfloat] -> [GLenum] -> Double -> IO Descriptor
 initResources vs idx z0 =  
   do
     -- | VAO
@@ -291,23 +291,30 @@ initResources vs idx z0 =
     let numIndices = length idx
     withArray idx $ \ptr ->
       do
-        let indicesSize = fromIntegral (numIndices * (length idx))
-        bufferData ElementArrayBuffer $= (indicesSize, ptr, StaticDraw)
+        let indexSize = fromIntegral $ numIndices * sizeOf (0 :: GLenum)
+        bufferData ElementArrayBuffer $= (indexSize, ptr, StaticDraw)
         
     -- | Bind the pointer to the vertex attribute data
     let floatSize  = (fromIntegral $ sizeOf (0.0::GLfloat)) :: GLsizei
         stride     = 8 * floatSize
 
     -- | Positions
-    let vPosition  = AttribLocation 0
-        posOffset  = 0 * floatSize
+    let vPosition = AttribLocation 0
+        posOffset = 0 * floatSize
     vertexAttribPointer vPosition $=
         (ToFloat, VertexArrayDescriptor 3 Float stride (bufferOffset posOffset))
     vertexAttribArray vPosition   $= Enabled
 
+    -- | Colors
+    let vaRGBA     = AttribLocation 1
+        rgbaOffset = 3 * floatSize
+    vertexAttribPointer vaRGBA  $=
+        (ToFloat, VertexArrayDescriptor 4 Float stride (bufferOffset rgbaOffset))
+    vertexAttribArray vaRGBA    $= Enabled
+
     -- | UV
-    let uvCoords   = AttribLocation 1
-        uvOffset   = 6 * floatSize
+    let uvCoords = AttribLocation 2
+        uvOffset = 6 * floatSize
     vertexAttribPointer uvCoords  $=
         (ToFloat, VertexArrayDescriptor 2 Float stride (bufferOffset uvOffset))
     vertexAttribArray uvCoords    $= Enabled
@@ -390,7 +397,7 @@ main = do
   animate window game
   putStrLn "Exiting Game"
 
-loadGltf' :: IO ([GLuint],[GLfloat])
+loadGltf' :: IO ([GLenum],[GLfloat])
 loadGltf' = do
   (root, meshPrimitives) <- loadMeshPrimitives False False "src/Model.gltf"
   let
@@ -402,12 +409,6 @@ loadGltf' = do
     uvs       = vaTexCoord <$> V.toList attrs
     colors    = vaRGBA     <$> V.toList attrs
     normals   = vaNormal   <$> V.toList attrs
-  --print $ "positions :" ++ show positions
-  print $ "indices   :" ++ show indices
-  -- print $ "attrs     :" ++ show attrs
-  -- print $ "uvs       :" ++ show uvs
-  -- print $ "colors    :" ++ show colors
-  -- print $ "normals   :" ++ show normals
 
   let
     ps = fromVec3' . unPacked <$> V.toList positions

@@ -17,6 +17,7 @@
 //
 // More info here: http://www.iquilezles.org/www/articles/distancefractals/distancefractals.htm
 
+in  vec4 rgba;
 in  vec2 fragCoord;
 // in  float time;
 out vec4 fragColor;
@@ -64,5 +65,7 @@ void main()
     
   // fragColor = vec4( vec3(fragCoord.x,fragCoord.y,0.0), 1.0 );
   // fragColor = vec4( col, 1.0 );
-  fragColor = vec4( 1.0, 0.0, 0.0, 1.0 );
+  // fragColor = vec4( 1.0, 0.0, 0.0, 1.0 );
+  //fragColor = rgba;
+  fragColor = vec4(fragCoord,0.0f,1.0f);
 }
