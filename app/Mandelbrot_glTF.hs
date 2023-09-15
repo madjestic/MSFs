@@ -40,7 +40,10 @@ import Geomancy.Vec2
 import RIO.Vector qualified as Vector
 import Codec.GlTF.Buffer qualified as Buffer
 import RIO.ByteString qualified as ByteString
-import Data.Coerce (Coercible, coerce)  
+import Data.Coerce (Coercible, coerce)
+import Data.UUID
+
+import Graphics.RedViz.Material
 
 type DTime = Double
 
@@ -54,25 +57,6 @@ data GameSettings = GameSettings
   { resX :: Int 
   , resY :: Int 
   } deriving Show
-
--- indices :: [GLenum]
--- indices =
---   [          -- Note that we start from 0!
---     0, 1, 3, -- First Triangle
---     1, 2, 3  -- Second Triangle
---   ]
-
--- verts :: (Double, Double) -> [GLfloat]
--- verts p0 =
---   [ -- | positions    -- | colors      -- | uv
---     1.0,  1.0, 0.0,   1.0, 0.0, 0.0,   1.0 + tx, 1.0 + ty,
---     1.0, -1.0, 0.0,   0.0, 1.0, 0.0,   1.0 + tx, 0.0 + ty,
---    -1.0, -1.0, 0.0,   0.0, 0.0, 1.0,   0.0 + tx, 0.0 + ty,
---    -1.0,  1.0, 0.0,   0.0, 0.0, 0.0,   0.0 + tx, 1.0 + ty
---   ]
---   where
---     tx = (\ (x,y)-> realToFrac x) p0 :: GLfloat
---     ty = (\ (x,y)-> realToFrac y) p0 :: GLfloat
 
 initGame :: Game
 initGame =
@@ -229,21 +213,6 @@ toVertex3 (V3 x y z)   = Vertex3 (float2Double x) (float2Double y) (float2Double
 fromVector :: V.Vector (V3 Float) -> [GLfloat]
 fromVector vs = concatMap (\(V3 x y z) -> [x,y,z]) (V.toList vs)
 
--- square :: Pos -> Double -> [Pos]
--- square pos side = [p1, p2, p3,
---                    p1, p3, p4]
---     where          
---         x = fst pos
---         y = snd pos
---         r = side/2 
---         p1 = (x + r, y + r)
---         p2 = (x - r, y + r)
---         p3 = (x - r, y - r)
---         p4 = (x + r, y - r)
-
--- toPos :: Shape -> [Pos]
--- toPos (Square pos side) =  square pos side
-
 data Projection = Planar                
                 deriving Show 
 
@@ -268,6 +237,11 @@ data Descriptor = Descriptor VertexArrayObject NumArrayIndices
 
 fromVertex3 :: Vertex3 Double -> [GLfloat]
 fromVertex3 (Vertex3 x y z) = [double2Float x, double2Float y, double2Float z]
+
+-- tx  = Texture { tname = "Checkerboard"}
+-- txs = [tx] :: [Texture]
+--mapM_ (bindTexture hmap) txs
+--uuids  = fmap tuuid txs
 
 initResources :: [GLfloat] -> [GLenum] -> Double -> IO Descriptor
 initResources vs idx z0 =  
@@ -356,10 +330,12 @@ renderOutput window d (g1,_) = do
     timer    = 0.01 * (fromIntegral $ tick g1)
     p0 = (0,0) :: (Double, Double)
     z0 = 0     :: Double
-  
+
+  clearColor $= Color4 timer 0.0 0.0 1.0
   GL.clear [ColorBuffer, DepthBuffer]
   
   let (Descriptor triangles numIndices) = d
+  --bindUniforms txs unis prog mpos hmap
   bindVertexArrayObject $= Just triangles
 
   GL.pointSize $= 10.0

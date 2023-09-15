@@ -101,7 +101,8 @@ executable Mandelbrot_glTF
                     , vector
                     , StateVar
                     , keid-resource-gltf
-                    , keid-core
+                    , keid-core ==0.1.8.0
+                    , uuid
                     -- , safe-exceptions
                     -- , filepath
                     -- , unordered-containers
@@ -110,11 +111,23 @@ executable Mandelbrot_glTF
                     , rio
                     , gl-block
                     , vector
+                    , lens
+                    , linear
+                    , random
+                    , simple-affine-space
+                    , locators
+                    , ilist
+                    , containers
+                    , aeson
+                    , aeson-pretty
                     
     other-modules:
                     LoadShaders
                   , Load_glTF
                   , Model_glTF
+                  , Graphics.RedViz.Material
+                  , Graphics.RedViz.Texture
+                  , Graphics.RedViz.Utils
                   --, Resource.Gltf.Load
                     
     hs-source-dirs:
