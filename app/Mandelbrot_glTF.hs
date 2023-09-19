@@ -2,7 +2,7 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 module Main where
 
-import           SDL
+import           SDL hiding (Texture)
 import           Control.Concurrent
 import           Control.Monad (unless, when)
 import           Control.Monad.IO.Class
@@ -22,13 +22,13 @@ import           Foreign.Ptr (plusPtr, nullPtr, Ptr)
 import           Foreign.Marshal.Array (withArray)  
 import           Codec.GlTF as GlTF
 import           Codec.GlTF.Mesh as Mesh
-import           Text.GLTF.Loader as Gltf
+import           Text.GLTF.Loader as Gltf hiding (Texture)
 import           Lens.Micro
 import qualified Data.Vector as V hiding (head, length)
 import           Data.Foldable
 import           Data.Word
 import           GHC.Float
-import           Graphics.Rendering.OpenGL (VertexArrayObject, NumArrayIndices)
+import           Graphics.Rendering.OpenGL (VertexArrayObject, NumArrayIndices, DataType (Double))
 import           LoadShaders
 import           Data.StateVar as SV
 import           Codec.GlTF.Mesh (Mesh(..))
@@ -42,8 +42,17 @@ import Codec.GlTF.Buffer qualified as Buffer
 import RIO.ByteString qualified as ByteString
 import Data.Coerce (Coercible, coerce)
 import Data.UUID
+import Linear.Projection         as LP        (infinitePerspective)
+import Data.Maybe (fromMaybe)
 
+import Graphics.RedViz.Texture as T
+import Graphics.RedViz.Texture
 import Graphics.RedViz.Material
+import Graphics.RedViz.Drawable
+import Graphics.RedViz.Descriptor
+import Graphics.RedViz.Camera
+import Graphics.RedViz.Backend
+import Graphics.RedViz.Camera
 
 type DTime = Double
 
@@ -51,6 +60,8 @@ data Game = Game
   { tick     :: Integer
   , mpos     :: Point V2 CInt
   , quitGame :: Bool
+  , drs      :: [Drawable]
+  , hmap     :: [(UUID, GLuint)]
   } deriving Show
 
 data GameSettings = GameSettings
@@ -64,6 +75,8 @@ initGame =
   { tick     = -1
   , mpos     = P (V2 0 0)
   , quitGame = False
+  , drs      = []
+  , hmap     = []
   }
 
 initSettings :: GameSettings
@@ -73,8 +86,8 @@ initSettings = GameSettings
   , resY = 600
   }
 
-game :: MSF (MaybeT (ReaderT GameSettings (ReaderT Double (StateT Game IO)))) () Bool
-game = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
+updateGame :: MSF (MaybeT (ReaderT GameSettings (ReaderT Double (StateT Game IO)))) () Bool
+updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
   where
     gameLoop = arrM (\_ -> (lift . lift . lift) gameLoop')
     gameQuit = arrM (\_ -> (lift . lift . lift) gameQuit')
@@ -115,11 +128,13 @@ game = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                     inc n = modify $ inc' n
                       where
                         inc' :: Integer -> Game -> Game
-                        inc' k (Game c m q) =
+                        inc' k (Game c m q d h) =
                           Game
-                          { tick      = c + k
-                          , mpos      = m
-                          , quitGame  = q
+                          { tick     = c + k
+                          , mpos     = m
+                          , quitGame = q
+                          , drs      = d
+                          , hmap     = h
                           }
                      
                     exit' :: Bool -> StateT Game IO ()
@@ -144,11 +159,14 @@ game = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                        mmove pos = modify $ mmove' pos
                                          where
                                            mmove' :: Point V2 CInt -> Game -> Game
-                                           mmove' pos (Game c m q) =
+                                           mmove' pos (Game c m q d h) =
                                              Game
                                              { tick     = c
                                              , mpos     = pos
-                                             , quitGame = q }
+                                             , quitGame = q
+                                             , drs      = d
+                                             , hmap     = h
+                                             }
   
                 updateKeyboard :: (Monad m) => [(Scancode, m ())] -> [Event] -> m ()
                 updateKeyboard ns = mapM_ (processEvent ns)
@@ -187,31 +205,31 @@ openWindow title (sizex,sizey) = do
               SDL.defaultWindow
               { SDL.windowInitialSize     = V2 sizex sizey
               , SDL.windowGraphicsContext = OpenGLContext config }
-              
+
     SDL.showWindow window
     _ <- SDL.glCreateContext window
     
     return window
 
-type Drawable   = ([Int], [Vertex3 Double])
+--type Drawable   = ([Int], [Vertex3 Double])
 type Pos        = (Double, Double)  
 data Shape      = Square Pos Double
                 deriving Show
 
-toVertex4 :: Pos -> Vertex4 Double
-toVertex4 (k, l)   = Vertex4 k l 0 1
+-- toVertex4 :: Pos -> Vertex4 Double
+-- toVertex4 (k, l)   = Vertex4 k l 0 1
 
-toVertex4' :: V3 Double -> Vertex4 Double
-toVertex4' (V3 x y z)   = Vertex4 x y z 1
+-- toVertex4' :: V3 Double -> Vertex4 Double
+-- toVertex4' (V3 x y z)   = Vertex4 x y z 1
 
-toVertex4'' :: V3 Float -> Vertex4 Double
-toVertex4'' (V3 x y z)   = Vertex4 (float2Double x) (float2Double y) (float2Double z) 1.0
+-- toVertex4'' :: V3 Float -> Vertex4 Double
+-- toVertex4'' (V3 x y z)   = Vertex4 (float2Double x) (float2Double y) (float2Double z) 1.0
 
-toVertex3 :: V3 Float -> Vertex3 Double
-toVertex3 (V3 x y z)   = Vertex3 (float2Double x) (float2Double y) (float2Double z)
+-- toVertex3 :: V3 Float -> Vertex3 Double
+-- toVertex3 (V3 x y z)   = Vertex3 (float2Double x) (float2Double y) (float2Double z)
 
-fromVector :: V.Vector (V3 Float) -> [GLfloat]
-fromVector vs = concatMap (\(V3 x y z) -> [x,y,z]) (V.toList vs)
+-- fromVector :: V.Vector (V3 Float) -> [GLfloat]
+-- fromVector vs = concatMap (\(V3 x y z) -> [x,y,z]) (V.toList vs)
 
 data Projection = Planar                
                 deriving Show 
@@ -232,8 +250,8 @@ toDescriptor file = do
   (idx, vs) <- loadGltf'
   initResources vs idx 0
 
-data Descriptor = Descriptor VertexArrayObject NumArrayIndices
-  deriving Show
+-- data Descriptor = Descriptor VertexArrayObject NumArrayIndices
+--   deriving Show
 
 fromVertex3 :: Vertex3 Double -> [GLfloat]
 fromVertex3 (Vertex3 x y z) = [double2Float x, double2Float y, double2Float z]
@@ -323,19 +341,27 @@ initResources vs idx z0 =
 bufferOffset :: Integral a => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
   
-renderOutput :: Window -> Descriptor -> (Game, Maybe Bool) -> IO Bool
-renderOutput _ _ ( _,Nothing) = quit >> return True
-renderOutput window d (g1,_) = do
+renderOutput :: Window -> (Game, Maybe Bool) -> IO Bool
+renderOutput _ ( _,Nothing) = quit >> return True
+renderOutput window (g1,_) = do
   let
     timer    = 0.01 * (fromIntegral $ tick g1)
-    p0 = (0,0) :: (Double, Double)
-    z0 = 0     :: Double
+    p0 = (0,0)         :: (Double, Double)
+    z0 = 0             :: Double
+    dr = head (drs g1) :: Drawable
+    d' = descriptor $ head (drs g1) :: Descriptor
+    unis = uniforms dr
+    prog = program  dr
+    hmap' = hmap g1
 
   clearColor $= Color4 timer 0.0 0.0 1.0
   GL.clear [ColorBuffer, DepthBuffer]
   
-  let (Descriptor triangles numIndices) = d
-  --bindUniforms txs unis prog mpos hmap
+  let
+    (Descriptor triangles numIndices) = d'
+    txs  = [defaultTexture]
+    mpos = (0,0)
+  bindUniforms txs unis prog mpos hmap'
   bindVertexArrayObject $= Just triangles
 
   GL.pointSize $= 10.0
@@ -343,17 +369,149 @@ renderOutput window d (g1,_) = do
   drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr  
   glSwapWindow window >> return False
 
+type MousePos = (Double, Double)
+
+bindUniforms :: [Texture] -> Uniforms -> Program -> MousePos -> [(UUID, GLuint)] -> IO ()
+bindUniforms
+  txs
+  (Uniforms u_time' u_res' u_cam' u_cam_a' u_cam_f' u_xform' u_ypr' u_yprS' u_vel' u_accel')
+  u_prog'
+  u_mouse'
+  hmap =
+  do
+    currentProgram $= Just u_prog'
+
+    let u_mouse0      = Vector2 (realToFrac $ fst u_mouse') (realToFrac $ snd u_mouse') :: Vector2 GLfloat
+    location0         <- SV.get (uniformLocation u_prog' "u_mouse'")
+    uniform location0 $= u_mouse0
+
+    let resX          = fromIntegral $ fromEnum $ fst u_res' :: Double
+        resY          = fromIntegral $ fromEnum $ snd u_res' :: Double
+        u_res         = Vector2 (realToFrac resX) (realToFrac resY) :: Vector2 GLfloat
+
+    location1         <- SV.get (uniformLocation u_prog' "u_resolution")
+    uniform location1 $= u_res
+
+    location2         <- SV.get (uniformLocation u_prog' "u_time'")
+    uniform location2 $= (u_time' :: GLdouble)
+
+    let apt = u_cam_a' -- aperture
+        foc = u_cam_f' -- focal length
+        proj =
+          LP.infinitePerspective
+          (2.0 * atan ( apt/2.0 / foc )) -- FOV
+          (resX/resY)                    -- Aspect
+          0.01                           -- Near
+
+    persp             <- GL.newMatrix RowMajor $ toList' proj   :: IO (GLmatrix GLfloat)
+    location3         <- SV.get (uniformLocation u_prog' "persp")
+    uniform location3 $= persp
+
+    --print $ show u_cam'
+    camera            <- GL.newMatrix RowMajor $ toList' u_cam' :: IO (GLmatrix GLfloat)
+    location4         <- SV.get (uniformLocation u_prog' "camera")
+    uniform location4 $= camera
+
+    xform             <- GL.newMatrix RowMajor $ toList' xform' :: IO (GLmatrix GLfloat)
+    location5         <- SV.get (uniformLocation u_prog' "xform")
+    uniform location5 $= xform
+
+    xform1            <- GL.newMatrix RowMajor $ toList' u_xform' :: IO (GLmatrix GLfloat)
+    location6         <- SV.get (uniformLocation u_prog' "xform1")
+    uniform location6 $= xform1
+
+    let sunP = GL.Vector3 299999999999.0 0.0 0.0 :: GL.Vector3 GLfloat
+    location7 <- SV.get (uniformLocation u_prog' "sunP")
+    uniform location7 $= sunP
+    
+    let ypr  =
+          Vector3
+          (double2Float $ u_ypr'^._1)
+          (double2Float $ u_ypr'^._2)
+          (double2Float $ u_ypr'^._3)
+          :: Vector3 GLfloat
+    location8        <- SV.get (uniformLocation u_prog' "ypr")
+    uniform location8 $= ypr
+
+    let yprS =
+          Vector3
+          (double2Float $ u_yprS'^._1)
+          (double2Float $ u_yprS'^._2)
+          (double2Float $ u_yprS'^._3)
+          :: Vector3 GLfloat
+    location9        <- SV.get (uniformLocation u_prog' "yprS")
+    uniform location9 $= yprS
+
+
+    let vel  =
+          Vector3
+          (double2Float $ u_vel'^._1)
+          (double2Float $ u_vel'^._2)
+          (double2Float $ u_vel'^._3)
+          :: Vector3 GLfloat
+    location10        <- SV.get (uniformLocation u_prog' "vel")
+    uniform location10 $= vel
+
+    let accel  =
+          Vector3
+          (double2Float $ u_accel'^._1)
+          (double2Float $ u_accel'^._2)
+          (double2Float $ u_accel'^._3)
+          :: Vector3 GLfloat
+    location11        <- SV.get (uniformLocation u_prog' "accel")
+    uniform location11 $= accel
+
+    --- | Allocate Textures
+
+    -- putStrLn $ "bindUniforms.txNames : "  ++ show txNames
+    -- putStrLn $ "bindUniforms.txuids   : " ++ show txuids
+    mapM_ (allocateTextures u_prog' hmap) txs
+    --mapM_ (allocateTextures u_prog' (DT.trace ("bindUniforms.hmap : " ++ show hmap) hmap)) txs
+
+    --- | Unload buffers
+    --bindVertexArrayObject         $= Nothing
+    --bindBuffer ElementArrayBuffer $= Nothing
+      where        
+        toList' = fmap realToFrac.concat.(fmap toList.toList) :: V4 (V4 Double) -> [GLfloat]
+        xform'  = --- | = Object Position - Camera Position
+          transpose $
+          fromV3M44
+          ( u_xform' ^._xyz )
+          ( fromV3V4 (transpose u_xform' ^._w._xyz + transpose u_cam' ^._w._xyz) 1.0 ) :: M44 Double
+
+allocateTextures :: Program -> [(UUID, GLuint)] -> Texture -> IO ()
+allocateTextures program0 hmap tx =
+  do
+    location <- SV.get (uniformLocation program0 (T.name tx))
+    uniform location $= TextureUnit txid
+      where
+        txid = fromMaybe 0 (lookup (uuid tx) hmap)
+
+fromList :: [a] -> M44 a
+fromList xs = V4
+              (V4 (head xs ) (xs!!1 )(xs!!2 )(xs!!3))
+              (V4 (xs!!4 ) (xs!!5 )(xs!!6 )(xs!!7))
+              (V4 (xs!!8 ) (xs!!9 )(xs!!10)(xs!!11))
+              (V4 (xs!!12) (xs!!13)(xs!!14)(xs!!15))
+
+fromV3M44 :: V3 (V4 a) -> V4 a -> M44 a
+fromV3M44 v3 = V4 (v3 ^. _x) (v3 ^. _y) (v3 ^. _z)
+
+fromV3V4 :: V3 a -> a -> V4 a
+fromV3V4 v3 = V4 (v3 ^. _x) (v3 ^. _y) (v3 ^. _z)
+
 animate :: Window
+         -> Game
          -> MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
          -> IO ()
-animate window sf = do
-  d <- toDescriptor "src/Model.gltf"
-  reactimateB $ input >>> sfIO >>> output d window
+animate window g0 sf = do
+  -- d <- toDescriptor "src/Model.gltf"
+  reactimateB $ input >>> sfIO >>> output window
   quit
   where
-    input    = arr (const (0.2, (initSettings, ())))                        :: MSF IO b (DTime, (GameSettings, ()))
-    sfIO     = runStateS_ (runReaderS (runReaderS (runMaybeS sf))) initGame :: MSF IO   (DTime, (GameSettings, ())) (Game, Maybe Bool)
-    output w d = arrM (renderOutput d w)                                   -- :: MSF IO   (Game, Maybe Bool) Bool
+    input    = arr (const (0.2, (initSettings, ())))                  :: MSF IO b (DTime, (GameSettings, ()))
+    sfIO     = runStateS_ (runReaderS (runReaderS (runMaybeS sf))) g0 :: MSF IO   (DTime, (GameSettings, ())) (Game, Maybe Bool)
+    output w = arrM (renderOutput w)                              :: MSF IO   (Game, Maybe Bool) Bool
 
 main :: IO ()
 main = do
@@ -369,8 +527,18 @@ main = do
   _ <- setMouseLocationMode RelativeLocation
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
+  d <- toDescriptor "src/Model.gltf"
+  program <- loadShaders [
+    ShaderInfo VertexShader   (FileSource "shaders/shader.vert"),
+    ShaderInfo FragmentShader (FileSource "shaders/shader.frag")]
+    
+  let
+    prg  = program
+    drw  = toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions (prg, d)
+    initGame' =
+      initGame { drs = [drw] }
 
-  animate window game
+  animate window initGame' updateGame 
   putStrLn "Exiting Game"
 
 loadGltf' :: IO ([GLenum],[GLfloat])

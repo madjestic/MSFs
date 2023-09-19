@@ -128,7 +128,15 @@ executable Mandelbrot_glTF
                   , Graphics.RedViz.Material
                   , Graphics.RedViz.Texture
                   , Graphics.RedViz.Utils
-                  --, Resource.Gltf.Load
+                  , Graphics.RedViz.Backend
+                  , Graphics.RedViz.Camera
+                  , Graphics.RedViz.Controllable
+                  , Graphics.RedViz.Descriptor
+                  , Graphics.RedViz.Drawable
+                  , Graphics.RedViz.Input.Keyboard
+                  , Graphics.RedViz.Input.Mouse
+                  , Graphics.RedViz.Object
+                  , Graphics.RedViz.Camera
                     
     hs-source-dirs:
                     app
