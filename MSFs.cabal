@@ -89,37 +89,37 @@ executable Mandelbrot_glTF
     main-is:          Mandelbrot_glTF.hs
     ghc-options:    -fprint-potential-instances
     build-depends:    base ^>=4.16.4.0
+                    , aeson
+                    , aeson-pretty
                     , bytestring
+                    , containers
                     , dunai
-                    , OpenGL
-                    , sdl2
-                    , text
-                    , transformers
+                    , directory
+                    , geomancy
+                    , gl-block
                     , gltf-codec
                     , gltf-loader
-                    , microlens
-                    , vector
-                    , StateVar
+                    , ilist
                     , keid-resource-gltf
                     , keid-core ==0.1.8.0
+                    , lens
+                    , linear
+                    , locators
+                    , OpenGL
+                    , sdl2
+                    , simple-affine-space
+                    , text
+                    , transformers
+                    , microlens
+                    , random
+                    , rio
+                    , StateVar
+                    , vector
                     , uuid
                     -- , safe-exceptions
                     -- , filepath
                     -- , unordered-containers
-                    , geomancy
                     -- , vector
-                    , rio
-                    , gl-block
-                    , vector
-                    , lens
-                    , linear
-                    , random
-                    , simple-affine-space
-                    , locators
-                    , ilist
-                    , containers
-                    , aeson
-                    , aeson-pretty
                     
     other-modules:
                     LoadShaders

@@ -29,11 +29,9 @@ import           Data.Foldable
 import           Data.Word
 import           GHC.Float
 import           Graphics.Rendering.OpenGL (VertexArrayObject, NumArrayIndices, DataType (Double))
-import           LoadShaders
+--import           LoadShaders
 import           Data.StateVar as SV
 import           Codec.GlTF.Mesh (Mesh(..))
-import Load_glTF
-import Model_glTF
 import Geomancy.Vec4
 import Geomancy.Vec3
 import Geomancy.Vec2
@@ -45,14 +43,15 @@ import Data.UUID
 import Linear.Projection         as LP        (infinitePerspective)
 import Data.Maybe (fromMaybe)
 
+import Load_glTF (loadMeshPrimitives)
+import Model_glTF
+
 import Graphics.RedViz.Texture as T
-import Graphics.RedViz.Texture
-import Graphics.RedViz.Material
 import Graphics.RedViz.Drawable
 import Graphics.RedViz.Descriptor
-import Graphics.RedViz.Camera
 import Graphics.RedViz.Backend
 import Graphics.RedViz.Camera
+import Graphics.RedViz.LoadShaders  
 
 type DTime = Double
 
@@ -245,9 +244,9 @@ toUV Planar =
     ps = [(1.0, 1.0),( 0.0, 1.0),( 0.0, 0.0)
          ,(1.0, 1.0),( 0.0, 0.0),( 1.0, 0.0)] :: [Pos]
 
-toDescriptor :: FilePath -> IO Descriptor
+toDescriptor :: FilePath -> IO (Descriptor, Program)
 toDescriptor file = do
-  (idx, vs) <- loadGltf'
+  (idx, vs) <- loadGltf
   initResources vs idx 0
 
 -- data Descriptor = Descriptor VertexArrayObject NumArrayIndices
@@ -261,7 +260,7 @@ fromVertex3 (Vertex3 x y z) = [double2Float x, double2Float y, double2Float z]
 --mapM_ (bindTexture hmap) txs
 --uuids  = fmap tuuid txs
 
-initResources :: [GLfloat] -> [GLenum] -> Double -> IO Descriptor
+initResources :: [GLfloat] -> [GLenum] -> Double -> IO (Descriptor, Program)
 initResources vs idx z0 =  
   do
     -- | VAO
@@ -313,8 +312,10 @@ initResources vs idx z0 =
 
     -- || Shaders
     program <- loadShaders [
-        ShaderInfo VertexShader   (FileSource "shaders/shader.vert"),
-        ShaderInfo FragmentShader (FileSource "shaders/shader.frag")]
+        -- ShaderInfo VertexShader   (FileSource "shaders/checkerboard/src/shader.vert"),
+        -- ShaderInfo FragmentShader (FileSource "shaders/checkerboard/src/shader.frag")]
+        ShaderInfo VertexShader   (FileSource "shaders/test/shader.vert"),
+        ShaderInfo FragmentShader (FileSource "shaders/test/shader.frag")]
     currentProgram $= Just program
 
     -- || Set Uniforms
@@ -331,12 +332,12 @@ initResources vs idx z0 =
           
     transform <- GL.newMatrix ColumnMajor tr :: IO (GLmatrix GLfloat)
     location2 <- SV.get (uniformLocation program "transform")
-    uniform location2 $= (transform)
+    uniform location2 $= transform
 
     -- || Unload buffers
     bindVertexArrayObject         $= Nothing
 
-    return $ Descriptor triangles (fromIntegral numIndices)
+    return $ (Descriptor triangles (fromIntegral numIndices), program)
 
 bufferOffset :: Integral a => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
@@ -505,13 +506,12 @@ animate :: Window
          -> MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
          -> IO ()
 animate window g0 sf = do
-  -- d <- toDescriptor "src/Model.gltf"
   reactimateB $ input >>> sfIO >>> output window
   quit
   where
     input    = arr (const (0.2, (initSettings, ())))                  :: MSF IO b (DTime, (GameSettings, ()))
     sfIO     = runStateS_ (runReaderS (runReaderS (runMaybeS sf))) g0 :: MSF IO   (DTime, (GameSettings, ())) (Game, Maybe Bool)
-    output w = arrM (renderOutput w)                              :: MSF IO   (Game, Maybe Bool) Bool
+    output w = arrM (renderOutput w)                                  :: MSF IO   (Game, Maybe Bool) Bool
 
 main :: IO ()
 main = do
@@ -527,13 +527,9 @@ main = do
   _ <- setMouseLocationMode RelativeLocation
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
-  d <- toDescriptor "src/Model.gltf"
-  program <- loadShaders [
-    ShaderInfo VertexShader   (FileSource "shaders/shader.vert"),
-    ShaderInfo FragmentShader (FileSource "shaders/shader.frag")]
+  (d, prg) <- toDescriptor "src/Model.gltf"
     
   let
-    prg  = program
     drw  = toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions (prg, d)
     initGame' =
       initGame { drs = [drw] }
@@ -541,8 +537,8 @@ main = do
   animate window initGame' updateGame 
   putStrLn "Exiting Game"
 
-loadGltf' :: IO ([GLenum],[GLfloat])
-loadGltf' = do
+loadGltf :: IO ([GLenum],[GLfloat])
+loadGltf = do
   (root, meshPrimitives) <- loadMeshPrimitives False False "src/Model.gltf"
   let
     (maybeMatTuple, stuff) = head $ V.toList $ head $ V.toList meshPrimitives
@@ -577,9 +573,6 @@ fromVec3' xyz = withVec3 (coerce xyz) (,,)
 
 fromVec4' :: Vec4 -> (Float, Float, Float, Float)
 fromVec4' xyzw = withVec4 (coerce xyzw) (,,,)
-
-loadGltfFile :: IO (Either Errors Gltf)
-loadGltfFile = Gltf.fromJsonFile "src/Model.gltf"
 
 getVertices :: Gltf -> V.Vector (V3 Float)
 getVertices gltf = V.concatMap getVertices' (gltf ^. _meshes)

@@ -28,6 +28,7 @@ import RIO.FilePath (takeDirectory, takeExtensions, (</>))
 import RIO.HashMap qualified as HashMap
 import RIO.List qualified as List
 import RIO.Vector qualified as Vector
+import Control.Exception
 
 import Data.Vector (iforM)
 
@@ -180,26 +181,17 @@ loadMeshPrimitives reverseIndices addBacksides fp = do
             Nothing ->
               throwString "No indices for mesh primitive"
             Just aix -> do
-
-              indices <-                 
-                (fmap Right $ accessBuffer @Word32 getAccessor getBufferView getBuffer Accessor.SCALAR Accessor.UNSIGNED_INT aix)
-                `catch`
-                (\UnexpectedComponentType{} -> fmap Left $ pure absurd)
-  
-              case indices of
-                Right word32s -> 
-                  pure word32s
-                Left _ -> do
-                  indices <-                 
-                    (fmap Right $ accessBuffer @Word16 getAccessor getBufferView getBuffer Accessor.SCALAR Accessor.UNSIGNED_SHORT aix)
-                    `catch`
-                    (\UnexpectedComponentType{} -> fmap Left $ accessBuffer @Word8 getAccessor getBufferView getBuffer Accessor.SCALAR Accessor.UNSIGNED_BYTE aix)
-                  case indices of
-                    Right word16s -> 
-                      pure $ fmap fromIntegral word16s
-                    Left word8s ->
-                      pure $ fmap fromIntegral word8s
-
+              Accessor.Accessor{componentType} <- getAccessor aix
+              case componentType of
+                Accessor.UNSIGNED_INT   ->
+                  accessBuffer @Word32 getAccessor getBufferView getBuffer Accessor.SCALAR Accessor.UNSIGNED_INT   aix
+                Accessor.UNSIGNED_SHORT -> fmap (fmap fromIntegral) $
+                  accessBuffer @Word16 getAccessor getBufferView getBuffer Accessor.SCALAR Accessor.UNSIGNED_SHORT aix
+                Accessor.UNSIGNED_BYTE  -> fmap (fmap fromIntegral) $
+                  accessBuffer @Word8  getAccessor getBufferView getBuffer Accessor.SCALAR Accessor.UNSIGNED_BYTE  aix
+                e ->
+                  throwM $ UnexpectedComponentType aix Accessor.UNSIGNED_INT e
+                  
           (material, indices) <- case Mesh.material prim of
             Nothing ->
               pure (Nothing, indicesCCW)
