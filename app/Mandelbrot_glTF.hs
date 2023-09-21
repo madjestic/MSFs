@@ -28,7 +28,7 @@ import qualified Data.Vector as V hiding (head, length)
 import           Data.Foldable
 import           Data.Word
 import           GHC.Float
-import           Graphics.Rendering.OpenGL (VertexArrayObject, NumArrayIndices, DataType (Double))
+import           Graphics.Rendering.OpenGL (VertexArrayObject, NumArrayIndices, DataType (Double), TextureObject (TextureObject))
 --import           LoadShaders
 import           Data.StateVar as SV
 import           Codec.GlTF.Mesh (Mesh(..))
@@ -46,12 +46,17 @@ import Data.Maybe (fromMaybe)
 import Load_glTF (loadMeshPrimitives)
 import Model_glTF
 
+
 import Graphics.RedViz.Texture as T
 import Graphics.RedViz.Drawable
 import Graphics.RedViz.Descriptor
 import Graphics.RedViz.Backend
 import Graphics.RedViz.Camera
-import Graphics.RedViz.LoadShaders  
+import Graphics.RedViz.LoadShaders
+import Graphics.RedViz.GLUtil.JuicyTextures
+import Graphics.RedViz.GLUtil                 (readTexture, texture2DWrap)
+
+import RIO (throwString)
 
 type DTime = Double
 
@@ -310,6 +315,16 @@ initResources vs idx z0 =
         (ToFloat, VertexArrayDescriptor 2 Float stride (bufferOffset uvOffset))
     vertexAttribArray uvCoords    $= Enabled
 
+    -- | Assign Textures
+    -- tx0 <- readTexture "textures/checkerboard.png" >>= \case
+    --     Right tx  -> pure tx :: IO TextureObject
+    --     Left  err -> throwString $ "Unable to load texture : " ++ show err
+
+    tx0 <- loadTex "textures/checkerboard.png"
+    texture Texture2D        $= Enabled
+    activeTexture            $= TextureUnit 0
+    textureBinding Texture2D $= Just tx0
+
     -- || Shaders
     program <- loadShaders [
         -- ShaderInfo VertexShader   (FileSource "shaders/checkerboard/src/shader.vert"),
@@ -319,8 +334,12 @@ initResources vs idx z0 =
     currentProgram $= Just program
 
     -- || Set Uniforms
-    location <- SV.get (uniformLocation program "fTime")
-    uniform location $= (realToFrac z0 :: GLfloat)
+    location0 <- SV.get (uniformLocation program "tex_00")
+    uniform location0 $= TextureUnit 0
+
+    -- -- || Set Uniforms
+    -- location <- SV.get (uniformLocation program "fTime")
+    -- uniform location $= (realToFrac z0 :: GLfloat)
 
     -- || Set Transform Matrix
     let tr :: [GLfloat]
@@ -338,6 +357,17 @@ initResources vs idx z0 =
     bindVertexArrayObject         $= Nothing
 
     return $ (Descriptor triangles (fromIntegral numIndices), program)
+
+loadTex :: FilePath -> IO TextureObject
+loadTex f =
+  do
+    t <- either error id <$> readTexture f
+    texture2DWrap            $= (Repeated, GL.ClampToEdge)
+    textureFilter  Texture2D $= ((Linear', Just Nearest), Linear')
+    blend                    $= Enabled
+    blendFunc                $= (SrcAlpha, OneMinusSrcAlpha)
+    generateMipmap' Texture2D
+    return t
 
 bufferOffset :: Integral a => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
@@ -362,7 +392,7 @@ renderOutput window (g1,_) = do
     (Descriptor triangles numIndices) = d'
     txs  = [defaultTexture]
     mpos = (0,0)
-  bindUniforms txs unis prog mpos hmap'
+  -- bindUniforms txs unis prog mpos hmap'
   bindVertexArrayObject $= Just triangles
 
   GL.pointSize $= 10.0
@@ -463,11 +493,7 @@ bindUniforms
     uniform location11 $= accel
 
     --- | Allocate Textures
-
-    -- putStrLn $ "bindUniforms.txNames : "  ++ show txNames
-    -- putStrLn $ "bindUniforms.txuids   : " ++ show txuids
-    mapM_ (allocateTextures u_prog' hmap) txs
-    --mapM_ (allocateTextures u_prog' (DT.trace ("bindUniforms.hmap : " ++ show hmap) hmap)) txs
+    -- mapM_ (allocateTextures u_prog' hmap) txs
 
     --- | Unload buffers
     --bindVertexArrayObject         $= Nothing

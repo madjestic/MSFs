@@ -23,6 +23,8 @@ in  vec2 fragCoord;
 out vec4 fragColor;
 
 uniform float fTime;
+//uniform sampler2D checkerboard;
+uniform sampler2D tex_00;
 
 void main()
 {
@@ -68,4 +70,9 @@ void main()
   // fragColor = vec4( 1.0, 0.0, 0.0, 1.0 );
   //fragColor = rgba;
   //fragColor = vec4(fragCoord,0.0f,1.0f);
+  vec2 uv = fragCoord;
+  //vec4 font_clr = texture(checkerboard, vec2(uv.x, 1.0f-uv.y));
+  vec4 font_clr = texture(tex_00, vec2(uv.x, 1.0f-uv.y));
+  //vec4 font_clr = vec4(uv, vec2(uv.x, 1.0f-uv.y));
+  fragColor     = font_clr;
 }

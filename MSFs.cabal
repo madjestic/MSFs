@@ -91,6 +91,7 @@ executable Mandelbrot_glTF
     build-depends:    base ^>=4.16.4.0
                     , aeson
                     , aeson-pretty
+                    , array
                     , bytestring
                     , containers
                     , dunai
@@ -100,6 +101,7 @@ executable Mandelbrot_glTF
                     , gltf-codec
                     , gltf-loader
                     , ilist
+                    , JuicyPixels
                     , keid-resource-gltf
                     , keid-core ==0.1.8.0
                     , lens
@@ -116,10 +118,6 @@ executable Mandelbrot_glTF
                     , StateVar
                     , vector
                     , uuid
-                    -- , safe-exceptions
-                    -- , filepath
-                    -- , unordered-containers
-                    -- , vector
                     
     other-modules:
                     LoadShaders
@@ -137,7 +135,12 @@ executable Mandelbrot_glTF
                   , Graphics.RedViz.Input.Mouse
                   , Graphics.RedViz.Object
                   , Graphics.RedViz.Camera
-                    
+                  , Graphics.RedViz.GLUtil
+                  , Graphics.RedViz.GLUtil.JuicyTextures
+                  , Graphics.RedViz.GLUtil.Textures
+                  , Graphics.RedViz.GLUtil.TypeMapping
+                  , Graphics.RedViz.LoadShaders
+                  
     hs-source-dirs:
                     app
                   , src
