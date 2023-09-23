@@ -22,14 +22,14 @@ in  vec2 fragCoord;
 // in  float time;
 out vec4 fragColor;
 
-uniform float fTime;
+uniform float u_time;
 //uniform sampler2D checkerboard;
 uniform sampler2D tex_00;
 
 void main()
 {
   vec3  iResolution = vec3(1024, 1024, 1.0);
-  float iGlobalTime = fTime;
+  float iGlobalTime = u_time;
   vec2  p           = -3.0 + 5000.0 * fragCoord.xy / iResolution.xy;
   p.x              *= iResolution.x/iResolution.y;
 
@@ -72,7 +72,8 @@ void main()
   //fragColor = vec4(fragCoord,0.0f,1.0f);
   vec2 uv = fragCoord;
   //vec4 font_clr = texture(checkerboard, vec2(uv.x, 1.0f-uv.y));
-  vec4 font_clr = texture(tex_00, vec2(uv.x, 1.0f-uv.y));
+  //vec4 font_clr = texture(tex_00, vec2(uv.x, uv.y));
   //vec4 font_clr = vec4(uv, vec2(uv.x, 1.0f-uv.y));
+  vec4 font_clr = vec4(uv, 0.5f, 1.0f);
   fragColor     = font_clr;
 }

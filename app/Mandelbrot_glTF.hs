@@ -25,11 +25,10 @@ import           Codec.GlTF.Mesh as Mesh
 import           Text.GLTF.Loader as Gltf hiding (Texture)
 import           Lens.Micro
 import qualified Data.Vector as V hiding (head, length)
-import           Data.Foldable
+import           Data.Foldable as DF
 import           Data.Word
 import           GHC.Float
 import           Graphics.Rendering.OpenGL (VertexArrayObject, NumArrayIndices, DataType (Double), TextureObject (TextureObject))
---import           LoadShaders
 import           Data.StateVar as SV
 import           Codec.GlTF.Mesh (Mesh(..))
 import Geomancy.Vec4
@@ -42,10 +41,10 @@ import Data.Coerce (Coercible, coerce)
 import Data.UUID
 import Linear.Projection         as LP        (infinitePerspective)
 import Data.Maybe (fromMaybe)
+import Data.Set as DS ( fromList, toList )
 
 import Load_glTF (loadMeshPrimitives)
 import Model_glTF
-
 
 import Graphics.RedViz.Texture as T
 import Graphics.RedViz.Drawable
@@ -55,6 +54,7 @@ import Graphics.RedViz.Camera
 import Graphics.RedViz.LoadShaders
 import Graphics.RedViz.GLUtil.JuicyTextures
 import Graphics.RedViz.GLUtil                 (readTexture, texture2DWrap)
+import Graphics.RedViz.Rendering (bindTexture, loadTex)
 
 import RIO (throwString)
 
@@ -66,6 +66,7 @@ data Game = Game
   , quitGame :: Bool
   , drs      :: [Drawable]
   , hmap     :: [(UUID, GLuint)]
+  , txs      :: [Texture]
   } deriving Show
 
 data GameSettings = GameSettings
@@ -81,6 +82,7 @@ initGame =
   , quitGame = False
   , drs      = []
   , hmap     = []
+  , txs      = []
   }
 
 initSettings :: GameSettings
@@ -101,6 +103,7 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
 
     gameLoop' :: StateT Game IO Bool
     gameLoop' = do
+      -- TMSF.get >>= \s -> liftIO $ print $ tick s
       handleEvents
         where
           handleEvents :: StateT Game IO Bool
@@ -132,14 +135,21 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                     inc n = modify $ inc' n
                       where
                         inc' :: Integer -> Game -> Game
-                        inc' k (Game c m q d h) =
+                        inc' k (Game c m q d h t) =
                           Game
                           { tick     = c + k
                           , mpos     = m
                           , quitGame = q
-                          , drs      = d
+                          , drs      = incDrw (fromIntegral(c + k)) <$> d
                           , hmap     = h
+                          , txs      = t
                           }
+                          where
+                            incDrw tick' drw0@(Drawable _ unis0 _ _) = 
+                              drw0 { uniforms = incUnis unis0 }
+                              where
+                                incUnis unis0 =
+                                  unis0 { u_time = tick' }
                      
                     exit' :: Bool -> StateT Game IO ()
                     exit' b = modify $ quit' b
@@ -163,13 +173,14 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                        mmove pos = modify $ mmove' pos
                                          where
                                            mmove' :: Point V2 CInt -> Game -> Game
-                                           mmove' pos (Game c m q d h) =
+                                           mmove' pos (Game c m q d h t) =
                                              Game
                                              { tick     = c
                                              , mpos     = pos
                                              , quitGame = q
                                              , drs      = d
                                              , hmap     = h
+                                             , txs      = t
                                              }
   
                 updateKeyboard :: (Monad m) => [(Scancode, m ())] -> [Event] -> m ()
@@ -197,12 +208,13 @@ openWindow title (sizex,sizey) = do
        when (renderQuality /= SDL.ScaleLinear) $                    
          putStrLn "Warning: Linear texture filtering not enabled!"
 
-    let config = OpenGLConfig { glColorPrecision     = V4 8 8 8 0
-                              , glDepthPrecision     = 24
-                              , glStencilPrecision   = 8
-                              , glMultisampleSamples = 4
-                              , glProfile            = Core Normal 4 5
-                              }
+    let config = 
+          OpenGLConfig { glColorPrecision     = V4 8 8 8 0
+                       , glDepthPrecision     = 24
+                       , glStencilPrecision   = 8
+                       , glMultisampleSamples = 4
+                       , glProfile            = Core Normal 4 5
+                       }
      
     window <- SDL.createWindow
             "MFS / SDL / OpenGL Example"
@@ -220,20 +232,6 @@ type Pos        = (Double, Double)
 data Shape      = Square Pos Double
                 deriving Show
 
--- toVertex4 :: Pos -> Vertex4 Double
--- toVertex4 (k, l)   = Vertex4 k l 0 1
-
--- toVertex4' :: V3 Double -> Vertex4 Double
--- toVertex4' (V3 x y z)   = Vertex4 x y z 1
-
--- toVertex4'' :: V3 Float -> Vertex4 Double
--- toVertex4'' (V3 x y z)   = Vertex4 (float2Double x) (float2Double y) (float2Double z) 1.0
-
--- toVertex3 :: V3 Float -> Vertex3 Double
--- toVertex3 (V3 x y z)   = Vertex3 (float2Double x) (float2Double y) (float2Double z)
-
--- fromVector :: V.Vector (V3 Float) -> [GLfloat]
--- fromVector vs = concatMap (\(V3 x y z) -> [x,y,z]) (V.toList vs)
 
 data Projection = Planar                
                 deriving Show 
@@ -249,23 +247,15 @@ toUV Planar =
     ps = [(1.0, 1.0),( 0.0, 1.0),( 0.0, 0.0)
          ,(1.0, 1.0),( 0.0, 0.0),( 1.0, 0.0)] :: [Pos]
 
-toDescriptor :: FilePath -> IO (Descriptor, Program)
+toDescriptor :: FilePath -> IO Descriptor
 toDescriptor file = do
   (idx, vs) <- loadGltf
   initResources vs idx 0
 
--- data Descriptor = Descriptor VertexArrayObject NumArrayIndices
---   deriving Show
-
 fromVertex3 :: Vertex3 Double -> [GLfloat]
 fromVertex3 (Vertex3 x y z) = [double2Float x, double2Float y, double2Float z]
 
--- tx  = Texture { tname = "Checkerboard"}
--- txs = [tx] :: [Texture]
---mapM_ (bindTexture hmap) txs
---uuids  = fmap tuuid txs
-
-initResources :: [GLfloat] -> [GLenum] -> Double -> IO (Descriptor, Program)
+initResources :: [GLfloat] -> [GLenum] -> Double -> IO (Descriptor)
 initResources vs idx z0 =  
   do
     -- | VAO
@@ -315,16 +305,6 @@ initResources vs idx z0 =
         (ToFloat, VertexArrayDescriptor 2 Float stride (bufferOffset uvOffset))
     vertexAttribArray uvCoords    $= Enabled
 
-    -- | Assign Textures
-    -- tx0 <- readTexture "textures/checkerboard.png" >>= \case
-    --     Right tx  -> pure tx :: IO TextureObject
-    --     Left  err -> throwString $ "Unable to load texture : " ++ show err
-
-    tx0 <- loadTex "textures/checkerboard.png"
-    texture Texture2D        $= Enabled
-    activeTexture            $= TextureUnit 0
-    textureBinding Texture2D $= Just tx0
-
     -- || Shaders
     program <- loadShaders [
         -- ShaderInfo VertexShader   (FileSource "shaders/checkerboard/src/shader.vert"),
@@ -333,83 +313,62 @@ initResources vs idx z0 =
         ShaderInfo FragmentShader (FileSource "shaders/test/shader.frag")]
     currentProgram $= Just program
 
-    -- || Set Uniforms
-    location0 <- SV.get (uniformLocation program "tex_00")
-    uniform location0 $= TextureUnit 0
-
-    -- -- || Set Uniforms
-    -- location <- SV.get (uniformLocation program "fTime")
-    -- uniform location $= (realToFrac z0 :: GLfloat)
-
-    -- || Set Transform Matrix
-    let tr :: [GLfloat]
-        tr =
-          [ 1, 0, 0, 0
-          , 0, 1, 0, 0
-          , 0, 0, 1, 0
-          , 0, 0, 0, 1 ]
-          
-    transform <- GL.newMatrix ColumnMajor tr :: IO (GLmatrix GLfloat)
-    location2 <- SV.get (uniformLocation program "transform")
-    uniform location2 $= transform
-
     -- || Unload buffers
     bindVertexArrayObject         $= Nothing
 
-    return $ (Descriptor triangles (fromIntegral numIndices), program)
-
-loadTex :: FilePath -> IO TextureObject
-loadTex f =
-  do
-    t <- either error id <$> readTexture f
-    texture2DWrap            $= (Repeated, GL.ClampToEdge)
-    textureFilter  Texture2D $= ((Linear', Just Nearest), Linear')
-    blend                    $= Enabled
-    blendFunc                $= (SrcAlpha, OneMinusSrcAlpha)
-    generateMipmap' Texture2D
-    return t
+    return $ Descriptor triangles (fromIntegral numIndices) program
 
 bufferOffset :: Integral a => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
   
 renderOutput :: Window -> (Game, Maybe Bool) -> IO Bool
 renderOutput _ ( _,Nothing) = quit >> return True
-renderOutput window (g1,_) = do
+renderOutput window (g,_) = do
   let
-    timer    = 0.01 * (fromIntegral $ tick g1)
-    p0 = (0,0)         :: (Double, Double)
-    z0 = 0             :: Double
-    dr = head (drs g1) :: Drawable
-    d' = descriptor $ head (drs g1) :: Descriptor
-    unis = uniforms dr
-    prog = program  dr
-    hmap' = hmap g1
+    timer    = 0.01 * (fromIntegral $ tick g)
+    d' = descriptor $ head (drs g) :: Descriptor
+    (Descriptor _ _ prog) = d'
 
   clearColor $= Color4 timer 0.0 0.0 1.0
   GL.clear [ColorBuffer, DepthBuffer]
   
   let
-    (Descriptor triangles numIndices) = d'
-    txs  = [defaultTexture]
-    mpos = (0,0)
-  -- bindUniforms txs unis prog mpos hmap'
+    (Descriptor triangles numIndices prg) = d'
+  bindUniforms g
   bindVertexArrayObject $= Just triangles
 
   GL.pointSize $= 10.0
+  GL.blend $= Disabled
   
   drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr  
   glSwapWindow window >> return False
 
 type MousePos = (Double, Double)
 
-bindUniforms :: [Texture] -> Uniforms -> Program -> MousePos -> [(UUID, GLuint)] -> IO ()
-bindUniforms
-  txs
-  (Uniforms u_time' u_res' u_cam' u_cam_a' u_cam_f' u_xform' u_ypr' u_yprS' u_vel' u_accel')
-  u_prog'
-  u_mouse'
-  hmap =
+bindUniforms :: Game -> IO ()
+bindUniforms g =
   do
+    let
+      txs' = txs g
+      dr   = head (drs g)
+      (Uniforms u_time' u_res' u_cam' u_cam_a' u_cam_f' u_xform' u_ypr' u_yprS' u_vel' u_accel') =
+        uniforms dr
+      d' = descriptor $ head (drs g) :: Descriptor
+      --(Descriptor _ _ u_prog') = d'      
+      u_mouse' = (0,0)
+      hmap'     = hmap g
+
+    u_prog' <- if True
+      then
+      loadShaders [
+      -- ShaderInfo VertexShader   (FileSource "shaders/checkerboard/src/shader.vert"),
+      -- ShaderInfo FragmentShader (FileSource "shaders/checkerboard/src/shader.frag")]
+      ShaderInfo VertexShader   (FileSource "shaders/test/shader.vert"),
+      ShaderInfo FragmentShader (FileSource "shaders/test/shader.frag")]
+      else
+      (\(Descriptor _ _ u_prog') -> return u_prog') d'
+
+    -- print $ "u_time' : " ++ show u_time'
     currentProgram $= Just u_prog'
 
     let u_mouse0      = Vector2 (realToFrac $ fst u_mouse') (realToFrac $ snd u_mouse') :: Vector2 GLfloat
@@ -422,9 +381,9 @@ bindUniforms
 
     location1         <- SV.get (uniformLocation u_prog' "u_resolution")
     uniform location1 $= u_res
-
-    location2         <- SV.get (uniformLocation u_prog' "u_time'")
-    uniform location2 $= (u_time' :: GLdouble)
+    
+    location2         <- SV.get (uniformLocation u_prog' "u_time")
+    uniform location2 $= (double2Float u_time' :: GLfloat)
 
     let apt = u_cam_a' -- aperture
         foc = u_cam_f' -- focal length
@@ -443,7 +402,7 @@ bindUniforms
     location4         <- SV.get (uniformLocation u_prog' "camera")
     uniform location4 $= camera
 
-    xform             <- GL.newMatrix RowMajor $ toList' xform' :: IO (GLmatrix GLfloat)
+    xform             <- GL.newMatrix RowMajor $ toList' (xform' u_xform' u_cam') :: IO (GLmatrix GLfloat)
     location5         <- SV.get (uniformLocation u_prog' "xform")
     uniform location5 $= xform
 
@@ -492,15 +451,28 @@ bindUniforms
     location11        <- SV.get (uniformLocation u_prog' "accel")
     uniform location11 $= accel
 
-    --- | Allocate Textures
-    -- mapM_ (allocateTextures u_prog' hmap) txs
+    -- || Set Transform Matrix
+    let tr :: [GLfloat]
+        tr =
+          [ 1, 0, 0, 0
+          , 0, 1, 0, 0
+          , 0, 0, 1, 0
+          , 0, 0, 0, 1 ]
 
-    --- | Unload buffers
-    --bindVertexArrayObject         $= Nothing
-    --bindBuffer ElementArrayBuffer $= Nothing
+    transform <- GL.newMatrix ColumnMajor tr :: IO (GLmatrix GLfloat)
+    location12 <- SV.get (uniformLocation u_prog' "transform")
+    uniform location12 $= transform
+
+    -- | Allocate Textures
+    texture Texture2D        $= Enabled
+    mapM_ (allocateTextures u_prog' hmap') txs'
+
+    -- | Unload buffers
+    bindVertexArrayObject         $= Nothing
+    bindBuffer ElementArrayBuffer $= Nothing
       where        
-        toList' = fmap realToFrac.concat.(fmap toList.toList) :: V4 (V4 Double) -> [GLfloat]
-        xform'  = --- | = Object Position - Camera Position
+        toList' = fmap realToFrac.concat.(fmap DF.toList.DF.toList) :: V4 (V4 Double) -> [GLfloat]
+        xform' u_xform' u_cam'= --- | = Object Position - Camera Position
           transpose $
           fromV3M44
           ( u_xform' ^._xyz )
@@ -531,12 +503,12 @@ animate :: Window
          -> Game
          -> MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
          -> IO ()
-animate window g0 sf = do
+animate window g sf = do
   reactimateB $ input >>> sfIO >>> output window
   quit
   where
     input    = arr (const (0.2, (initSettings, ())))                  :: MSF IO b (DTime, (GameSettings, ()))
-    sfIO     = runStateS_ (runReaderS (runReaderS (runMaybeS sf))) g0 :: MSF IO   (DTime, (GameSettings, ())) (Game, Maybe Bool)
+    sfIO     = runStateS_ (runReaderS (runReaderS (runMaybeS sf))) g :: MSF IO   (DTime, (GameSettings, ())) (Game, Maybe Bool)
     output w = arrM (renderOutput w)                                  :: MSF IO   (Game, Maybe Bool) Bool
 
 main :: IO ()
@@ -553,13 +525,21 @@ main = do
   _ <- setMouseLocationMode RelativeLocation
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
-  (d, prg) <- toDescriptor "src/Model.gltf"
+  d <- toDescriptor "src/Model.gltf"
     
   let
-    drw  = toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions (prg, d)
+    drw   = toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions d
+    txs'  = [T.defaultTexture]
+    uuids = fmap T.uuid txs'
+    hmap' = DS.toList . DS.fromList $ zip uuids [0..]    
     initGame' =
-      initGame { drs = [drw] }
+      initGame { drs  = [drw]
+               , hmap = hmap'
+               , txs  = txs' }
 
+  putStrLn "Binding Textures..."
+  mapM_ (bindTexture hmap') txs'
+      
   animate window initGame' updateGame 
   putStrLn "Exiting Game"
 
