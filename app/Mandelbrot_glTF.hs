@@ -327,7 +327,6 @@ renderOutput window (g,_) = do
   let
     timer    = 0.01 * (fromIntegral $ tick g)
     d' = descriptor $ head (drs g) :: Descriptor
-    (Descriptor _ _ prog) = d'
 
   clearColor $= Color4 timer 0.0 0.0 1.0
   GL.clear [ColorBuffer, DepthBuffer]
@@ -338,9 +337,14 @@ renderOutput window (g,_) = do
   bindVertexArrayObject $= Just triangles
 
   GL.pointSize $= 10.0
-  GL.blend $= Disabled
+  GL.blend $= Enabled
+  GL.depthMask $= Enabled
+  depthFunc $= Just Less
+  cullFace  $= Just Back
   
-  drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr  
+  drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
+
+
   glSwapWindow window >> return False
 
 type MousePos = (Double, Double)
@@ -361,14 +365,11 @@ bindUniforms g =
     u_prog' <- if True
       then
       loadShaders [
-      -- ShaderInfo VertexShader   (FileSource "shaders/checkerboard/src/shader.vert"),
-      -- ShaderInfo FragmentShader (FileSource "shaders/checkerboard/src/shader.frag")]
       ShaderInfo VertexShader   (FileSource "shaders/test/shader.vert"),
       ShaderInfo FragmentShader (FileSource "shaders/test/shader.frag")]
       else
       (\(Descriptor _ _ u_prog') -> return u_prog') d'
 
-    -- print $ "u_time' : " ++ show u_time'
     currentProgram $= Just u_prog'
 
     let u_mouse0      = Vector2 (realToFrac $ fst u_mouse') (realToFrac $ snd u_mouse') :: Vector2 GLfloat
@@ -529,7 +530,10 @@ main = do
     
   let
     drw   = toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions d
-    txs'  = [T.defaultTexture]
+    --txs'  = [T.defaultTexture { path = "src/testgeometry_pighead_lowres.png"}]
+    txs'  = [T.defaultTexture
+             { path = "src/testgeometry_pighead_lowres.png"}
+            ]
     uuids = fmap T.uuid txs'
     hmap' = DS.toList . DS.fromList $ zip uuids [0..]    
     initGame' =

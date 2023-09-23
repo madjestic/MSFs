@@ -33,8 +33,8 @@ mat4 xform =
 void main()
 {
    gl_Position = rotateY(u_time) * vec4(vPosition, 1.0f);
-   float x = length(gl_Position.xyz);
-   gl_Position.z = mix (f1(x, s1), f2(x, s2), mixF(x, far));
+   //float x = length(gl_Position.xyz);
+   //gl_Position.z = mix (f1(x, s1), f2(x, s2), mixF(x, far));
    
 
 // The color of each vertex will be interpolated
