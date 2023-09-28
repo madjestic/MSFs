@@ -252,10 +252,15 @@ toDescriptor file = do
   (idx, vs) <- loadGltf
   initResources vs idx 0
 
+toDescriptor' :: FilePath -> IO [Descriptor]
+toDescriptor' file = do
+  stuff <- loadGltf'
+  mapM (\(vs, idx) -> initResources idx vs 0) $ concat stuff
+
 fromVertex3 :: Vertex3 Double -> [GLfloat]
 fromVertex3 (Vertex3 x y z) = [double2Float x, double2Float y, double2Float z]
 
-initResources :: [GLfloat] -> [GLenum] -> Double -> IO (Descriptor)
+initResources :: [GLfloat] -> [GLenum] -> Double -> IO Descriptor
 initResources vs idx z0 =  
   do
     -- | VAO
@@ -326,24 +331,31 @@ renderOutput _ ( _,Nothing) = quit >> return True
 renderOutput window (g,_) = do
   let
     timer    = 0.01 * (fromIntegral $ tick g)
-    d' = descriptor $ head (drs g) :: Descriptor
+    -- d' = descriptor $ head (drs g) :: Descriptor
+    ds' = descriptor <$> drs g     :: [Descriptor]
 
   clearColor $= Color4 timer 0.0 0.0 1.0
   GL.clear [ColorBuffer, DepthBuffer]
-  
-  let
-    (Descriptor triangles numIndices prg) = d'
-  bindUniforms g
-  bindVertexArrayObject $= Just triangles
 
   GL.pointSize $= 10.0
   GL.blend $= Enabled
   GL.depthMask $= Enabled
   depthFunc $= Just Less
   cullFace  $= Just Back
-  
-  drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
 
+  bindUniforms g
+
+  mapM_ (\(Descriptor triangles numIndices prg) -> do
+            -- let
+            --   (Descriptor triangles numIndices prg) = d'
+            bindVertexArrayObject $= Just triangles
+            drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
+        ) ds'
+  -- let
+  --   (Descriptor triangles numIndices prg) = d'
+  -- bindVertexArrayObject $= Just triangles
+  
+  -- drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
 
   glSwapWindow window >> return False
 
@@ -526,10 +538,13 @@ main = do
   _ <- setMouseLocationMode RelativeLocation
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
-  d <- toDescriptor "src/Model.gltf"
+  d  <- toDescriptor "src/Model.gltf"
+  ds <- toDescriptor' "src/Model.gltf" :: IO [Descriptor]
     
   let
     drw   = toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions d
+    --drws  = (\d -> toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions d) <$> ds
+    drws  = toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions <$> ds :: [Drawable]
     --txs'  = [T.defaultTexture { path = "src/testgeometry_pighead_lowres.png"}]
     txs'  = [T.defaultTexture
              { path = "src/testgeometry_pighead_lowres.png"}
@@ -537,7 +552,7 @@ main = do
     uuids = fmap T.uuid txs'
     hmap' = DS.toList . DS.fromList $ zip uuids [0..]    
     initGame' =
-      initGame { drs  = [drw]
+      initGame { drs  = drws
                , hmap = hmap'
                , txs  = txs' }
 
@@ -569,11 +584,38 @@ loadGltf = do
     verts = concatMap (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,u,v]) d
   return (idx, verts)
 
+loadGltf' :: IO [[([GLenum],[GLfloat])]] -- > [[([GLenum],[GLfloat])]]
+loadGltf' = do
+  (root, meshPrimitives) <- loadMeshPrimitives False False "src/Model.gltf"
+  let
+    mgrs = V.toList <$> V.toList meshPrimitives :: [[Model_glTF.MeshPrimitive]]
+    positions = (fmap.fmap) (\(maybeMatTuple, stuff) -> sPositions stuff) mgrs :: [[V.Vector Packed]]
+    indices   = (fmap.fmap) (\(maybeMatTuple, stuff) -> sIndices   stuff) mgrs 
+    idx       = (fmap.fmap.fmap) fromIntegral $ (fmap.fmap) V.toList indices 
+    attrs     = (fmap.fmap) (\(maybeMatTuple, stuff) -> sAttrs     stuff) mgrs :: [[V.Vector VertexAttrs]]
+    uvs       = (fmap.fmap.fmap) vaTexCoord $ (fmap.fmap) V.toList attrs 
+    colors    = (fmap.fmap.fmap) vaRGBA     $ (fmap.fmap) V.toList attrs
+    normals   = (fmap.fmap.fmap) vaNormal   $ (fmap.fmap) V.toList attrs
+
+    ps = (fmap.fmap.fmap) (fromVec3' . unPacked) ((fmap.fmap) V.toList positions) :: [[[(Float,Float,Float)]]]
+    cs = (fmap.fmap.fmap) fromVec4' colors :: [[[(Float,Float,Float,Float)]]]
+    ts = (fmap.fmap.fmap) fromVec2' uvs
+    d = (,,) <$$$.> ps <***.> cs <***.> ts
+    verts = (fmap.fmap.concatMap) (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,u,v]) d
+  --return $ (\[x] [y] -> [zip x y]) idx verts
+  return $ zipWith zip idx verts
+
 (<$.>) :: (a -> b) -> [a] -> [b]
 (<$.>) = fmap
 
+(<$$$.>) :: (a -> b) -> [[[a]]] -> [[[b]]]
+(<$$$.>) = fmap . fmap . fmap
+
 (<*.>) :: [a -> b] -> [a] -> [b]
 (<*.>) = zipWith ($)
+
+(<***.>) :: [[[a -> b]]] -> [[[a]]] -> [[[b]]]
+(<***.>) =  (zipWith . zipWith . zipWith) ($)
 
 fromVec2' :: Vec2 -> (Float, Float)
 fromVec2' xy = withVec2 (coerce xy) (,)
