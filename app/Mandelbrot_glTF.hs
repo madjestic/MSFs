@@ -47,10 +47,10 @@ import Load_glTF (loadMeshPrimitives)
 import Model_glTF
 
 import Graphics.RedViz.Texture as T
-import Graphics.RedViz.Drawable
+--import Graphics.RedViz.Drawable
 import Graphics.RedViz.Descriptor
 import Graphics.RedViz.Backend
-import Graphics.RedViz.Camera
+--import Graphics.RedViz.Camera
 import Graphics.RedViz.LoadShaders
 import Graphics.RedViz.GLUtil.JuicyTextures
 import Graphics.RedViz.GLUtil                 (readTexture, texture2DWrap)
@@ -60,10 +60,99 @@ import RIO (throwString)
 
 type DTime = Double
 
+data Controllable
+  =  Controller
+     { debug      :: (Int, Int)
+     , transform  :: M44 Double
+     , vel        :: V3 Double  -- velocity
+     , ypr        :: V3 Double  -- yaw/pitch/roll
+     , yprS       :: V3 Double  -- yaw/pitch/roll Sum
+     }
+  deriving Show
+
+data Camera =
+     Camera
+     { name       :: String
+     , apt        :: Double
+     , foc        :: Double
+     , controller :: Controllable
+     , mouseS     :: V3 Double -- mouse    "sensitivity"
+     , keyboardRS :: V3 Double -- keyboard "rotation sensitivity"
+     , keyboardTS :: V3 Double -- keyboard "translation sensitivity"
+     } deriving Show
+
+defaultCam :: Camera
+defaultCam =
+  Camera
+  {
+    name       = "PlayerCamera"
+  , apt        = 50.0
+  , foc        = 100.0
+  , controller = defaultCamController
+  , mouseS     = 1.0
+  , keyboardRS = 1.0
+  , keyboardTS = 1.0
+  }
+
+defaultCamController :: Controllable
+defaultCamController =
+  ( Controller
+    { debug = (0,0)
+    , transform =  
+      (V4
+        (V4 1 0 0 0)
+        (V4 0 1 0 0) -- <- . . . y ...
+        (V4 0 0 1 0) -- <- . . . z-component of transform
+        (V4 0 0 0 1))
+    , vel  = (V3 0 0 0) -- velocity
+    , ypr  = (V3 0 0 0) -- rotation
+    , yprS = (V3 0 0 0) -- sum of rotations
+    }
+  )
+
+data Drawable
+  =  Drawable
+     { 
+       descriptor :: Descriptor
+     , options    :: BackendOptions
+     , u_xform    :: M44 Double
+     } deriving Show
+
+data Uniforms
+  =  Uniforms
+     {
+       u_time  :: Double
+     , u_res   :: (CInt, CInt)
+     , u_cam   :: M44 Double
+     , u_cam_a :: Double
+     , u_cam_f :: Double
+     , u_cam_ypr   :: (Double, Double, Double)
+     , u_cam_yprS  :: (Double, Double, Double)
+     , u_cam_vel   :: (Double, Double, Double)
+     , u_cam_accel :: (Double, Double, Double)
+     } deriving Show
+
+defaultUniforms :: Uniforms
+defaultUniforms = 
+  Uniforms
+  {
+    u_time  = 0.0
+  , u_res   = (0,0)
+  , u_cam   = (identity :: M44 Double)
+  , u_cam_a = 50.0
+  , u_cam_f = 100.0
+  , u_cam_ypr   = (\(V3 x y z) -> (x,y,z)) $ ypr  defaultCamController
+  , u_cam_yprS  = (\(V3 x y z) -> (x,y,z)) $ yprS defaultCamController
+  , u_cam_vel   = (\(V3 x y z) -> (x,y,z)) $ vel  defaultCamController
+  , u_cam_accel = (0,0,0)
+  }
+
 data Game = Game
   { tick     :: Integer
   , mpos     :: Point V2 CInt
   , quitGame :: Bool
+  , camera   :: Camera
+  , uniforms :: Uniforms
   , drs      :: [Drawable]
   , hmap     :: [(UUID, GLuint)]
   , txs      :: [Texture]
@@ -80,6 +169,8 @@ initGame =
   { tick     = -1
   , mpos     = P (V2 0 0)
   , quitGame = False
+  , camera   = defaultCam
+  , uniforms = defaultUniforms
   , drs      = []
   , hmap     = []
   , txs      = []
@@ -92,6 +183,32 @@ initSettings = GameSettings
   , resY = 600
   }
 
+type Time        = Double
+type Res         = (CInt, CInt)
+
+toDrawable ::
+     String
+  -> Time
+  -> Res
+  -> Camera
+  -> M44 Double
+  -> BackendOptions
+  -> Descriptor
+  -> Drawable
+toDrawable name' time' res' cam xformO opts d = dr
+  where
+    apt'    = apt cam
+    foc'    = foc cam
+    xformC =  transform (controller cam) :: M44 Double
+    --xformC =  undefined :: M44 Double
+    dr  =
+      Drawable
+      { 
+        u_xform    = xformO
+      , descriptor = d
+      , options    = opts
+      }
+
 updateGame :: MSF (MaybeT (ReaderT GameSettings (ReaderT Double (StateT Game IO)))) () Bool
 updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
   where
@@ -103,7 +220,10 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
 
     gameLoop' :: StateT Game IO Bool
     gameLoop' = do
-      -- TMSF.get >>= \s -> liftIO $ print $ tick s
+
+      -- print/debug state:
+      -- TMSF.get >>= \s -> liftIO $ print $ (transform . controller . camera) s
+      
       handleEvents
         where
           handleEvents :: StateT Game IO Bool
@@ -124,6 +244,22 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                       && keysymScancode (keyboardEventKeysym keyboardEvent) == ScancodeQ
                     QuitEvent -> True
                     _         -> False
+
+                updateKeyboard :: (Monad m) => [(Scancode, m ())] -> [Event] -> m ()
+                updateKeyboard emap = mapM_ (processEvent emap)
+                  where
+                    processEvent :: (Monad m) => [(Scancode , m ())] -> Event -> m ()
+                    processEvent mapping e =
+                      let mk = case eventPayload e of
+                                 KeyboardEvent keyboardEvent -> Just
+                                   ( keyboardEventKeyMotion keyboardEvent == Pressed
+                                   , keysymScancode (keyboardEventKeysym keyboardEvent))
+                                 _ -> Nothing
+                      in case mk of
+                        Nothing     -> return ()
+                        Just (_, k) -> case lookup k mapping of
+                                          Nothing -> return ()
+                                          Just k  -> k
                 
                 mapKeyEvents :: [(Scancode, StateT Game IO ())]
                 mapKeyEvents =
@@ -135,21 +271,21 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                     inc n = modify $ inc' n
                       where
                         inc' :: Integer -> Game -> Game
-                        inc' k (Game c m q d h t) =
+                        inc' k (Game c m q cam unis d h t) =
                           Game
                           { tick     = c + k
                           , mpos     = m
                           , quitGame = q
-                          , drs      = incDrw (fromIntegral(c + k)) <$> d
+                          , camera   = cam
+                          , uniforms = incUnis (fromIntegral(c + k)) unis
+                          , drs      = d
                           , hmap     = h
                           , txs      = t
                           }
                           where
-                            incDrw tick' drw0@(Drawable _ unis0 _ _) = 
-                              drw0 { uniforms = incUnis unis0 }
-                              where
-                                incUnis unis0 =
-                                  unis0 { u_time = tick' }
+                            incUnis :: Integer -> Uniforms -> Uniforms
+                            incUnis tick' unis0 = 
+                              unis0 { u_time = fromInteger tick' }
                      
                     exit' :: Bool -> StateT Game IO ()
                     exit' b = modify $ quit' b
@@ -167,38 +303,39 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                             _ -> Nothing
                       in case mk of
                         Nothing   -> return ()
-                        Just vpos -> mmove (unsafeCoerce vpos)
-                                     where
-                                       mmove :: Point V2 CInt -> StateT Game IO ()
-                                       mmove pos = modify $ mmove' pos
-                                         where
-                                           mmove' :: Point V2 CInt -> Game -> Game
-                                           mmove' pos (Game c m q d h t) =
-                                             Game
-                                             { tick     = c
-                                             , mpos     = pos
-                                             , quitGame = q
-                                             , drs      = d
-                                             , hmap     = h
-                                             , txs      = t
-                                             }
+                        Just vpos ->
+                          mmove (unsafeCoerce vpos)
+                          where
+                            mmove :: Point V2 CInt -> StateT Game IO ()
+                            mmove pos = modify $ mmove' pos
+                              where
+                                mmove' :: Point V2 CInt -> Game -> Game
+                                mmove' pos (Game c m q cam unis d h t) =
+                                  Game
+                                  { tick     = c
+                                  , mpos     = pos
+                                  , quitGame = q
+                                  , camera   = updateCam pos cam
+                                  , uniforms = unis
+                                  , drs      = d
+                                  , hmap     = h
+                                  , txs      = t
+                                  }
+                                  where
+                                    updateCam pos cam =
+                                      cam { controller = updateController pos (controller cam)}
+                                      where
+                                        updateController :: Point V2 CInt -> Controllable -> Controllable
+                                        updateController pos ctrl@(Controller _ tr _ _ _) =
+                                          ctrl
+                                          { transform =
+                                            (V4
+                                              (V4 1 0 0 (0.001 * fromIntegral (pos^._x))) -- <- . . . x ...
+                                              (V4 0 1 0 (0.001 * fromIntegral (pos^._y))) -- <- . . . y ...
+                                              (V4 0 0 1 0) -- <- . . . z-component of transform
+                                              (V4 0 0 0 1))
+                                          }
   
-                updateKeyboard :: (Monad m) => [(Scancode, m ())] -> [Event] -> m ()
-                updateKeyboard ns = mapM_ (processEvent ns)
-                  where
-                    processEvent :: (Monad m) => [(Scancode , m ())] -> Event -> m ()
-                    processEvent mapping e =
-                      let mk = case eventPayload e of
-                                 KeyboardEvent keyboardEvent -> Just
-                                   ( keyboardEventKeyMotion keyboardEvent == Pressed
-                                   , keysymScancode (keyboardEventKeysym keyboardEvent))
-                                 _ -> Nothing
-                      in case mk of
-                        Nothing     -> return ()
-                        Just (_, k) -> case lookup k mapping of
-                                          Nothing -> return ()
-                                          Just k  -> k
-
 -- < Rendering > ----------------------------------------------------------
 openWindow :: Text -> (CInt, CInt) -> IO SDL.Window
 openWindow title (sizex,sizey) = do
@@ -227,7 +364,6 @@ openWindow title (sizex,sizey) = do
     
     return window
 
---type Drawable   = ([Int], [Vertex3 Double])
 type Pos        = (Double, Double)  
 data Shape      = Square Pos Double
                 deriving Show
@@ -326,13 +462,12 @@ initResources vs idx z0 =
 bufferOffset :: Integral a => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
   
-renderOutput :: Window -> (Game, Maybe Bool) -> IO Bool
-renderOutput _ ( _,Nothing) = quit >> return True
-renderOutput window (g,_) = do
+renderOutput :: Window -> GameSettings -> (Game, Maybe Bool) -> IO Bool
+renderOutput _ _ ( _,Nothing) = quit >> return True
+renderOutput window gs (g,_) = do
   let
-    timer    = 0.01 * (fromIntegral $ tick g)
-    -- d' = descriptor $ head (drs g) :: Descriptor
-    ds' = descriptor <$> drs g     :: [Descriptor]
+    timer = 0.01 * (fromIntegral $ tick g)
+    ds'   = descriptor <$> drs g :: [Descriptor]
 
   clearColor $= Color4 timer 0.0 0.0 1.0
   GL.clear [ColorBuffer, DepthBuffer]
@@ -343,37 +478,32 @@ renderOutput window (g,_) = do
   depthFunc $= Just Less
   cullFace  $= Just Back
 
-  bindUniforms g
 
-  mapM_ (\(Descriptor triangles numIndices prg) -> do
-            -- let
-            --   (Descriptor triangles numIndices prg) = d'
+  mapM_ (\dr -> do
+            bindUniforms g dr
+            let (Descriptor triangles numIndices _) = descriptor dr
             bindVertexArrayObject $= Just triangles
             drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
-        ) ds'
-  -- let
-  --   (Descriptor triangles numIndices prg) = d'
-  -- bindVertexArrayObject $= Just triangles
-  
-  -- drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
+        ) (drs g)
 
   glSwapWindow window >> return False
 
 type MousePos = (Double, Double)
 
-bindUniforms :: Game -> IO ()
-bindUniforms g =
+bindUniforms :: Game -> Drawable -> IO ()
+bindUniforms g dr =
   do
     let
-      txs' = txs g
-      dr   = head (drs g)
-      (Uniforms u_time' u_res' u_cam' u_cam_a' u_cam_f' u_xform' u_ypr' u_yprS' u_vel' u_accel') =
-        uniforms dr
-      d' = descriptor $ head (drs g) :: Descriptor
-      --(Descriptor _ _ u_prog') = d'      
+      txs'     = txs g
+      u_xform' = u_xform dr
+      d'       = descriptor dr :: Descriptor
+      u_cam'   = (transform.controller.camera) g
+      (Uniforms u_time' u_res' _ u_cam_a' u_cam_f' u_ypr' u_yprS' u_vel' u_accel') = uniforms g
+      --(Uniforms u_time' u_res' u_cam' u_cam_a' u_cam_f' u_ypr' u_yprS' u_vel' u_accel') = uniforms g
       u_mouse' = (0,0)
       hmap'     = hmap g
 
+    --(Descriptor _ _ u_prog') = d'      
     u_prog' <- if True
       then
       loadShaders [
@@ -490,7 +620,7 @@ bindUniforms g =
           fromV3M44
           ( u_xform' ^._xyz )
           ( fromV3V4 (transpose u_xform' ^._w._xyz + transpose u_cam' ^._w._xyz) 1.0 ) :: M44 Double
-
+          
 allocateTextures :: Program -> [(UUID, GLuint)] -> Texture -> IO ()
 allocateTextures program0 hmap tx =
   do
@@ -513,16 +643,18 @@ fromV3V4 :: V3 a -> a -> V4 a
 fromV3V4 v3 = V4 (v3 ^. _x) (v3 ^. _y) (v3 ^. _z)
 
 animate :: Window
-         -> Game
-         -> MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
-         -> IO ()
-animate window g sf = do
+        -> DTime
+        -> GameSettings
+        -> Game
+        -> MSF (MaybeT (ReaderT GameSettings (ReaderT DTime (StateT Game IO)))) () Bool
+        -> IO ()
+animate window dt gs g sf = do
   reactimateB $ input >>> sfIO >>> output window
   quit
   where
-    input    = arr (const (0.2, (initSettings, ())))                  :: MSF IO b (DTime, (GameSettings, ()))
+    input    = arr (const (dt, (gs, ())))                            :: MSF IO b (DTime, (GameSettings, ()))
     sfIO     = runStateS_ (runReaderS (runReaderS (runMaybeS sf))) g :: MSF IO   (DTime, (GameSettings, ())) (Game, Maybe Bool)
-    output w = arrM (renderOutput w)                                  :: MSF IO   (Game, Maybe Bool) Bool
+    output w = arrM (renderOutput w gs)                                 :: MSF IO   (Game, Maybe Bool) Bool
 
 main :: IO ()
 main = do
@@ -542,10 +674,7 @@ main = do
   ds <- toDescriptor' "src/Model.gltf" :: IO [Descriptor]
     
   let
-    drw   = toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions d
-    --drws  = (\d -> toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions d) <$> ds
-    drws  = toDrawable "" 0.0 (resX', resY') defaultCam (identity :: M44 Double) defaultBackendOptions <$> ds :: [Drawable]
-    --txs'  = [T.defaultTexture { path = "src/testgeometry_pighead_lowres.png"}]
+    drws  = toDrawable "" 0.0 (resX', resY') (camera initGame) (identity :: M44 Double) defaultBackendOptions <$> ds :: [Drawable]
     txs'  = [T.defaultTexture
              { path = "src/testgeometry_pighead_lowres.png"}
             ]
@@ -555,11 +684,12 @@ main = do
       initGame { drs  = drws
                , hmap = hmap'
                , txs  = txs' }
+    dt    = 0.2 :: Double -- time increment
 
   putStrLn "Binding Textures..."
   mapM_ (bindTexture hmap') txs'
       
-  animate window initGame' updateGame 
+  animate window dt initSettings initGame' updateGame 
   putStrLn "Exiting Game"
 
 loadGltf :: IO ([GLenum],[GLfloat])
@@ -602,7 +732,6 @@ loadGltf' = do
     ts = (fmap.fmap.fmap) fromVec2' uvs
     d = (,,) <$$$.> ps <***.> cs <***.> ts
     verts = (fmap.fmap.concatMap) (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,u,v]) d
-  --return $ (\[x] [y] -> [zip x y]) idx verts
   return $ zipWith zip idx verts
 
 (<$.>) :: (a -> b) -> [a] -> [b]
