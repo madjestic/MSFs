@@ -24,6 +24,7 @@ import           Codec.GlTF as GlTF
 import           Codec.GlTF.Mesh as Mesh
 import           Text.GLTF.Loader as Gltf hiding (Texture)
 import           Lens.Micro
+import           Control.Lens.Combinators (view)
 import qualified Data.Vector as V hiding (head, length)
 import           Data.Foldable as DF
 import           Data.Word
@@ -40,6 +41,7 @@ import RIO.ByteString qualified as ByteString
 import Data.Coerce (Coercible, coerce)
 import Data.UUID
 import Linear.Projection         as LP        (infinitePerspective)
+import Linear.Matrix
 import Data.Maybe (fromMaybe)
 import Data.Set as DS ( fromList, toList )
 
@@ -89,7 +91,7 @@ defaultCam =
   , apt        = 50.0
   , foc        = 100.0
   , controller = defaultCamController
-  , mouseS     = 1.0
+  , mouseS     = -0.01
   , keyboardRS = 1.0
   , keyboardTS = 1.0
   }
@@ -265,7 +267,10 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                 mapKeyEvents =
                   [ (ScancodeW, inc   10)
                   , (ScancodeS, inc (-10))
-                  , (ScancodeQ, exit' True) ]
+                  , (ScancodeEscape, exit' True)
+                  -- , (ScancodeQ, rotZ   10) -- TODO
+                  -- , (ScancodeE, rotZ (-10))
+                  ]
                   where
                     inc :: Integer -> StateT Game IO ()
                     inc n = modify $ inc' n
@@ -299,7 +304,7 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                     processEvent :: Event -> StateT Game IO ()
                     processEvent e =
                       let mk = case eventPayload e of
-                            MouseMotionEvent mouseEvent -> Just (mouseMotionEventPos mouseEvent)
+                            MouseMotionEvent mouseEvent -> Just (mouseMotionEventRelMotion mouseEvent)
                             _ -> Nothing
                       in case mk of
                         Nothing   -> return ()
@@ -307,7 +312,8 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                           mmove (unsafeCoerce vpos)
                           where
                             mmove :: Point V2 CInt -> StateT Game IO ()
-                            mmove pos = modify $ mmove' pos
+                            mmove pos = do
+                              modify $ mmove' pos
                               where
                                 mmove' :: Point V2 CInt -> Game -> Game
                                 mmove' pos (Game c m q cam unis d h t) =
@@ -326,15 +332,20 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                       cam { controller = updateController pos (controller cam)}
                                       where
                                         updateController :: Point V2 CInt -> Controllable -> Controllable
-                                        updateController pos ctrl@(Controller _ tr _ _ _) =
+                                        updateController pos ctrl@(Controller _ mtx0 _ ypr0 _) =
                                           ctrl
-                                          { transform =
-                                            (V4
-                                              (V4 1 0 0 (0.001 * fromIntegral (pos^._x))) -- <- . . . x ...
-                                              (V4 0 1 0 (0.001 * fromIntegral (pos^._y))) -- <- . . . y ...
-                                              (V4 0 0 1 0) -- <- . . . z-component of transform
-                                              (V4 0 0 0 1))
+                                          { transform = 
+                                              mkTransformationMat
+                                              rot
+                                              tr
                                           }
+                                          where
+                                            tr = view translation mtx0
+                                            rot = 
+                                              (mtx0^._m33)
+                                              !*! fromQuaternion (axisAngle (mtx0^.(_m33._x)) ((mouseS cam)^._x * (fromIntegral $ pos^._y))) -- pitch
+                                              !*! fromQuaternion (axisAngle (mtx0^.(_m33._y)) ((mouseS cam)^._x * (fromIntegral $ pos^._x))) -- yaw
+
   
 -- < Rendering > ----------------------------------------------------------
 openWindow :: Text -> (CInt, CInt) -> IO SDL.Window
