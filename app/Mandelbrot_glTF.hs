@@ -67,8 +67,8 @@ data Controllable
      { debug      :: (Int, Int)
      , transform  :: M44 Double
      , vel        :: V3 Double  -- velocity
-     , ypr        :: V3 Double  -- yaw/pitch/roll
-     , yprS       :: V3 Double  -- yaw/pitch/roll Sum
+     , ypr        :: V3 Double  -- yaw/pitch/camRoll
+     , yprS       :: V3 Double  -- yaw/pitch/camRoll Sum
      }
   deriving Show
 
@@ -92,7 +92,7 @@ defaultCam =
   , foc        = 100.0
   , controller = defaultCamController
   , mouseS     = -0.01
-  , keyboardRS = 1.0
+  , keyboardRS = 0.1
   , keyboardTS = 1.0
   }
 
@@ -267,11 +267,36 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                 mapKeyEvents =
                   [ (ScancodeW, inc   10)
                   , (ScancodeS, inc (-10))
-                  , (ScancodeEscape, exit' True)
-                  -- , (ScancodeQ, rotZ   10) -- TODO
-                  -- , (ScancodeE, rotZ (-10))
+                  , (ScancodeEscape, quit True)
+                  , (ScancodeQ, camRoll   1) -- TODO
+                  , (ScancodeE, camRoll (-1))
                   ]
                   where
+                    camRoll :: Integer -> StateT Game IO ()
+                    camRoll n = modify $ camRoll' n
+                      where
+                        camRoll' :: Integer -> Game -> Game
+                        camRoll' k g0 = g0 { camera = updateCam n cam0 }
+                          where
+                            cam0            = camera g0
+                            updateCam :: Integer -> Camera -> Camera
+                            updateCam n cam =
+                              cam { controller = updateController n (controller cam)}
+                              where
+                                updateController :: Integer -> Controllable -> Controllable
+                                updateController pos ctrl@(Controller _ mtx0 _ ypr0 _) =
+                                  ctrl
+                                  { transform = 
+                                      mkTransformationMat
+                                      rot
+                                      tr
+                                  }
+                                  where
+                                    tr = view translation mtx0
+                                    rot = 
+                                      (mtx0^._m33)
+                                      !*! fromQuaternion (axisAngle (mtx0^.(_m33._z)) (keyboardRS cam^._x * (fromIntegral n))) -- yaw
+                          
                     inc :: Integer -> StateT Game IO ()
                     inc n = modify $ inc' n
                       where
@@ -292,11 +317,11 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                             incUnis tick' unis0 = 
                               unis0 { u_time = fromInteger tick' }
                      
-                    exit' :: Bool -> StateT Game IO ()
-                    exit' b = modify $ quit' b
-                     
-                    quit' :: Bool -> Game -> Game
-                    quit' b gameLoop' = gameLoop' { quitGame = b }
+                    quit :: Bool -> StateT Game IO ()
+                    quit b = modify $ quit' b
+                      where
+                        quit' :: Bool -> Game -> Game
+                        quit' b gameLoop' = gameLoop' { quitGame = b }
 
                 updateMouse  :: [Event] -> StateT Game IO ()
                 updateMouse = mapM_ processEvent 
@@ -343,8 +368,8 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                             tr = view translation mtx0
                                             rot = 
                                               (mtx0^._m33)
-                                              !*! fromQuaternion (axisAngle (mtx0^.(_m33._x)) ((mouseS cam)^._x * (fromIntegral $ pos^._y))) -- pitch
-                                              !*! fromQuaternion (axisAngle (mtx0^.(_m33._y)) ((mouseS cam)^._x * (fromIntegral $ pos^._x))) -- yaw
+                                              !*! fromQuaternion (axisAngle (mtx0^.(_m33._x)) (mouseS cam^._x * (fromIntegral $ pos^._y))) -- pitch
+                                              !*! fromQuaternion (axisAngle (mtx0^.(_m33._y)) (mouseS cam^._x * (fromIntegral $ pos^._x))) -- yaw
 
   
 -- < Rendering > ----------------------------------------------------------
