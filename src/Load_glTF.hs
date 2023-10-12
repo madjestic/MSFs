@@ -164,13 +164,13 @@ loadMeshPrimitives reverseIndices addBacksides fp = do
       --for (Vector.zip (Vector.fromList [0 :: Int ..]) meshes) \(_meshIx, mesh) -> do
       iforM meshes \_meshIx mesh -> do
         iforM (Mesh.primitives mesh) \_primIx prim -> do
-        --for (Vector.zip (Vector.fromList [0 :: Int ..]) (Mesh.primitives mesh)) \(_primIx, prim) -> do
-          -- DT.traceShowM
-          --   ( "mesh"
-          --   , _meshIx, Mesh.name mesh
-          --   , "primitive"
-          --   , _primIx
-          --   )
+          -- for (Vector.zip (Vector.fromList [0 :: Int ..]) (Mesh.primitives mesh)) \(_primIx, prim) -> do
+          --   DT.traceShowM
+          --     ( "meshIx"    , _meshIx
+          --     , "Mesh.name" , Mesh.name mesh
+          --     , "_primIx"   , _primIx
+          --     , "material"  , Mesh.material prim
+          --     )
           case Mesh.mode prim of
             Mesh.TRIANGLES ->
               pure ()

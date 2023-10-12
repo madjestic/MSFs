@@ -11,7 +11,7 @@ import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.MSF as TMSF
 import           Data.MonadicStreamFunction  
 import qualified Data.MonadicStreamFunction as MSF
-import           Data.Text (Text)
+import           Data.Text (Text, unpack) 
 import           Control.Monad.Trans.MSF.Maybe (exit)
 import           Control.Monad.Trans.MSF.Except
 import Foreign (sizeOf, peekArray, castPtr)
@@ -22,7 +22,8 @@ import           Foreign.Ptr (plusPtr, nullPtr, Ptr)
 import           Foreign.Marshal.Array (withArray)  
 import           Codec.GlTF as GlTF
 import           Codec.GlTF.Mesh as Mesh
-import           Text.GLTF.Loader as Gltf hiding (Texture)
+import           Text.GLTF.Loader as Gltf hiding (Texture, Material)
+import           Codec.GlTF.Material as Gltf
 import           Lens.Micro
 import           Control.Lens.Combinators (view)
 import qualified Data.Vector as V hiding (head, length)
@@ -57,6 +58,7 @@ import Graphics.RedViz.LoadShaders
 import Graphics.RedViz.GLUtil.JuicyTextures
 import Graphics.RedViz.GLUtil                 (readTexture, texture2DWrap)
 import Graphics.RedViz.Rendering (bindTexture, loadTex)
+import Graphics.RedViz.Material as R
 
 import RIO (throwString)
 
@@ -268,7 +270,7 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                   [ (ScancodeW, inc   10)
                   , (ScancodeS, inc (-10))
                   , (ScancodeEscape, quit True)
-                  , (ScancodeQ, camRoll   1) -- TODO
+                  , (ScancodeQ, camRoll   1)
                   , (ScancodeE, camRoll (-1))
                   ]
                   where
@@ -301,17 +303,7 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                     inc n = modify $ inc' n
                       where
                         inc' :: Integer -> Game -> Game
-                        inc' k (Game c m q cam unis d h t) =
-                          Game
-                          { tick     = c + k
-                          , mpos     = m
-                          , quitGame = q
-                          , camera   = cam
-                          , uniforms = incUnis (fromIntegral(c + k)) unis
-                          , drs      = d
-                          , hmap     = h
-                          , txs      = t
-                          }
+                        inc' k g0 = g0 { uniforms = incUnis (fromIntegral(tick g0 + k)) (uniforms g0) }
                           where
                             incUnis :: Integer -> Uniforms -> Uniforms
                             incUnis tick' unis0 = 
@@ -341,17 +333,7 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                               modify $ mmove' pos
                               where
                                 mmove' :: Point V2 CInt -> Game -> Game
-                                mmove' pos (Game c m q cam unis d h t) =
-                                  Game
-                                  { tick     = c
-                                  , mpos     = pos
-                                  , quitGame = q
-                                  , camera   = updateCam pos cam
-                                  , uniforms = unis
-                                  , drs      = d
-                                  , hmap     = h
-                                  , txs      = t
-                                  }
+                                mmove' pos g0 = g0 { camera = updateCam pos (camera g0) }
                                   where
                                     updateCam pos cam =
                                       cam { controller = updateController pos (controller cam)}
@@ -419,22 +401,33 @@ toUV Planar =
     ps = [(1.0, 1.0),( 0.0, 1.0),( 0.0, 0.0)
          ,(1.0, 1.0),( 0.0, 0.0),( 1.0, 0.0)] :: [Pos]
 
-toDescriptor :: FilePath -> IO Descriptor
+toDescriptor :: FilePath -> IO ([Descriptor], [Texture])
 toDescriptor file = do
-  (idx, vs) <- loadGltf
-  initResources vs idx 0
-
-toDescriptor' :: FilePath -> IO [Descriptor]
-toDescriptor' file = do
-  stuff <- loadGltf'
-  mapM (\(vs, idx) -> initResources idx vs 0) $ concat stuff
+  (stuff, mats) <- loadGltf "src/Model.gltf"
+  txs <-
+    mapM
+    (\m -> case Gltf.name m of
+      Nothing      -> return [T.defaultTexture]
+      Just matName -> do
+        mat <- fromGltfMaterialName matName
+        return $ R.textures mat
+    ) mats
+  ds <- mapM (\((vs, idx), mat) -> initResources idx vs mat 0) $ zip (concat stuff) mats
+  return (ds, concat txs)
+    where
+      fromGltfMaterialName :: Text -> IO R.Material
+      fromGltfMaterialName m = R.read $ matPath $ unpack m
+        where
+          matPath :: String -> String
+          matPath s = "./mat/" ++ s ++ "/" ++ s
 
 fromVertex3 :: Vertex3 Double -> [GLfloat]
 fromVertex3 (Vertex3 x y z) = [double2Float x, double2Float y, double2Float z]
 
-initResources :: [GLfloat] -> [GLenum] -> Double -> IO Descriptor
-initResources vs idx z0 =  
+initResources :: [GLfloat] -> [GLenum] -> Gltf.Material -> Double -> IO Descriptor
+initResources vs idx mat z0 =  
   do
+    -- print $ mat
     -- | VAO
     triangles <- genObjectName
     bindVertexArrayObject $= Just triangles
@@ -690,7 +683,7 @@ animate window dt gs g sf = do
   where
     input    = arr (const (dt, (gs, ())))                            :: MSF IO b (DTime, (GameSettings, ()))
     sfIO     = runStateS_ (runReaderS (runReaderS (runMaybeS sf))) g :: MSF IO   (DTime, (GameSettings, ())) (Game, Maybe Bool)
-    output w = arrM (renderOutput w gs)                                 :: MSF IO   (Game, Maybe Bool) Bool
+    output w = arrM (renderOutput w gs)                              :: MSF IO   (Game, Maybe Bool) Bool
 
 main :: IO ()
 main = do
@@ -706,69 +699,61 @@ main = do
   _ <- setMouseLocationMode RelativeLocation
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
-  d  <- toDescriptor "src/Model.gltf"
-  ds <- toDescriptor' "src/Model.gltf" :: IO [Descriptor]
+  (ds, txs) <- toDescriptor "src/Model.gltf" :: IO ([Descriptor],[Texture])
     
   let
     drws  = toDrawable "" 0.0 (resX', resY') (camera initGame) (identity :: M44 Double) defaultBackendOptions <$> ds :: [Drawable]
-    txs'  = [T.defaultTexture
-             { path = "src/testgeometry_pighead_lowres.png"}
-            ]
-    uuids = fmap T.uuid txs'
+  -- print txs
+  let
+    uuids = fmap T.uuid txs
     hmap' = DS.toList . DS.fromList $ zip uuids [0..]    
     initGame' =
       initGame { drs  = drws
                , hmap = hmap'
-               , txs  = txs' }
+               , txs  = txs }
     dt    = 0.2 :: Double -- time increment
 
   putStrLn "Binding Textures..."
-  mapM_ (bindTexture hmap') txs'
+  mapM_ (bindTexture hmap') txs
       
   animate window dt initSettings initGame' updateGame 
   putStrLn "Exiting Game"
 
-loadGltf :: IO ([GLenum],[GLfloat])
-loadGltf = do
-  (root, meshPrimitives) <- loadMeshPrimitives False False "src/Model.gltf"
-  let
-    (maybeMatTuple, stuff) = head $ V.toList $ head $ V.toList meshPrimitives
-    positions = sPositions stuff
-    indices   = sIndices   stuff
-    idx       = fromIntegral <$> V.toList indices
-    attrs     = sAttrs     stuff
-    uvs       = vaTexCoord <$> V.toList attrs
-    colors    = vaRGBA     <$> V.toList attrs
-    normals   = vaNormal   <$> V.toList attrs
+defaultGltfMat = Gltf.Material
+  { emissiveFactor = (0,0,0)
+  , alphaMode      = MaterialAlphaMode {unMaterialAlphaMode = "OPAQUE"}
+  , alphaCutoff    = 0.5
+  , doubleSided    = False
+  , pbrMetallicRoughness = Nothing
+  , normalTexture        = Nothing
+  , occlusionTexture     = Nothing
+  , emissiveTexture      = Nothing
+  , name                 = Just "test"
+  , extensions           = Nothing
+  , extras               = Nothing
+  } 
 
-  let
-    ps = fromVec3' . unPacked <$> V.toList positions
-    cs = fromVec4' <$> colors
-    ts = fromVec2' <$> uvs
-    d = (,,) <$.> ps <*.> cs <*.> ts
-    --verts = concatMap (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,ca,u,v]) (V.toList ((d!!) <$> (fromIntegral <$> indices)))
-    verts = concatMap (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,u,v]) d
-  return (idx, verts)
-
-loadGltf' :: IO [[([GLenum],[GLfloat])]] -- > [[([GLenum],[GLfloat])]]
-loadGltf' = do
-  (root, meshPrimitives) <- loadMeshPrimitives False False "src/Model.gltf"
+loadGltf :: FilePath -> IO ([[([GLenum],[GLfloat])]], [Gltf.Material])
+loadGltf fp = do
+  (root, meshPrimitives) <- loadMeshPrimitives False False fp
   let
     mgrs = V.toList <$> V.toList meshPrimitives :: [[Model_glTF.MeshPrimitive]]
-    positions = (fmap.fmap) (\(maybeMatTuple, stuff) -> sPositions stuff) mgrs :: [[V.Vector Packed]]
-    indices   = (fmap.fmap) (\(maybeMatTuple, stuff) -> sIndices   stuff) mgrs 
+    positions = (fmap.fmap) (\(_, stuff) -> sPositions stuff) mgrs :: [[V.Vector Packed]]
+    indices   = (fmap.fmap) (\(_, stuff) -> sIndices   stuff) mgrs 
     idx       = (fmap.fmap.fmap) fromIntegral $ (fmap.fmap) V.toList indices 
-    attrs     = (fmap.fmap) (\(maybeMatTuple, stuff) -> sAttrs     stuff) mgrs :: [[V.Vector VertexAttrs]]
+    attrs     = (fmap.fmap) (\(_, stuff) -> sAttrs     stuff) mgrs :: [[V.Vector VertexAttrs]]
     uvs       = (fmap.fmap.fmap) vaTexCoord $ (fmap.fmap) V.toList attrs 
     colors    = (fmap.fmap.fmap) vaRGBA     $ (fmap.fmap) V.toList attrs
     normals   = (fmap.fmap.fmap) vaNormal   $ (fmap.fmap) V.toList attrs
+    matTuples = (fmap.fmap) (\(maybeMatTuple, _) -> fromMaybe (0, defaultGltfMat) maybeMatTuple) mgrs :: [[(Int, Gltf.Material)]]
+    mats      = (fmap.fmap) snd matTuples :: [[Gltf.Material]]
 
     ps = (fmap.fmap.fmap) (fromVec3' . unPacked) ((fmap.fmap) V.toList positions) :: [[[(Float,Float,Float)]]]
     cs = (fmap.fmap.fmap) fromVec4' colors :: [[[(Float,Float,Float,Float)]]]
     ts = (fmap.fmap.fmap) fromVec2' uvs
     d = (,,) <$$$.> ps <***.> cs <***.> ts
     verts = (fmap.fmap.concatMap) (\((x,y,z),(cr,cg,cb,ca),(u,v)) -> [x,y,z,cr,cg,cb,u,v]) d
-  return $ zipWith zip idx verts
+  return $ (zipWith zip idx verts, concat mats)
 
 (<$.>) :: (a -> b) -> [a] -> [b]
 (<$.>) = fmap

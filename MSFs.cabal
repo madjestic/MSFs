@@ -364,4 +364,98 @@ executable Test_glTF
                     
     hs-source-dirs:   app
                     , src
-    default-language: Haskell2010        
+    default-language: Haskell2010
+
+executable genMaterial
+  main-is:      genMaterial.hs
+  hs-source-dirs:
+                app
+              , src
+
+  ghc-options:   -O2 -threaded -Wall -Werror -Wcompat -Widentities -Wno-unused-top-binds -Wno-orphans
+  build-depends:
+                base                
+              , aeson               
+              , aeson-pretty        
+              , bytestring          
+              , containers                      
+              , directory           
+              , ilist                                                       
+              , lens                
+              , linear                         
+              , locators            
+              , OpenGL              
+              , random              
+              , simple-affine-space           
+              , split               
+              , text                
+              , uuid                
+              , vector                         
+
+  other-modules:
+                Paths_MSFs
+              , Graphics.RedViz.Material.Lens
+              , Graphics.RedViz.FromVector
+              , Graphics.RedViz.Utils
+              , Graphics.RedViz.Texture.Lens
+              , Graphics.RedViz.Backend              
+
+  default-language:
+                Haskell2010
+
+executable genUUID
+  main-is:      genUUID.hs
+  hs-source-dirs:
+                app
+              , src
+  --ghc-options:         -threaded -O2 -Wall -Werror -Wcompat -Widentities -Wno-unused-top-binds -Wno-orphans
+  ghc-options:         -threaded -O2
+  --cpp-options:         -DDEBUG
+  build-depends:
+                base                
+              , aeson               
+              , aeson-pretty        
+              , bytestring          
+              , containers          
+              , directory           
+              , ilist               
+              , lens                
+              , linear              
+              , locators            
+              , OpenGL              
+              , simple-affine-space                         
+              , sort                
+              , text                
+              , uuid                
+              , random
+              , array             
+              , vector
+              , JuicyPixels
+              
+  other-modules:
+                Paths_MSFs
+              , Graphics.RedViz.Project
+              , Graphics.RedViz.Project.Model
+              , Graphics.RedViz.Project.Project
+              , Graphics.RedViz.Camera.Lens
+              , Graphics.RedViz.Drawable.Lens
+              , Graphics.RedViz.Object.Lens
+              , Graphics.RedViz.Texture.Lens
+              , Graphics.RedViz.Material
+              , Graphics.RedViz.Backend
+              , Graphics.RedViz.Utils
+              , Graphics.RedViz.GLUtil
+              , Graphics.RedViz.GLUtil.JuicyTextures
+              , Graphics.RedViz.GLUtil.Textures
+              , Graphics.RedViz.GLUtil.TypeMapping
+              , Graphics.RedViz.Controllable
+              , Graphics.RedViz.Descriptor
+              , Graphics.RedViz.Input.Keyboard
+              , Graphics.RedViz.Input.Mouse
+              , Graphics.RedViz.Material.Lens
+              , Graphics.RedViz.Texture
+              
+
+  default-language:
+                Haskell2010
+                
