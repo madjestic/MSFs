@@ -403,28 +403,24 @@ toUV Planar =
 
 toDescriptor :: FilePath -> IO ([Descriptor], [Texture])
 toDescriptor file = do
-  (stuff, mats) <- loadGltf "src/Model.gltf"
-  txs <-
-    mapM
-    (\m -> case Gltf.name m of
-      Nothing      -> return [T.defaultTexture]
-      Just matName -> do
-        mat <- fromGltfMaterialName matName
-        return $ R.textures mat
-    ) mats
-  ds <- mapM (\((vs, idx), mat) -> initResources idx vs mat 0) $ zip (concat stuff) mats
-  return (ds, concat txs)
+  (stuff, mats) <- loadGltf file -- "src/pighead.gltf"
+  print mats
+  mats' <- mapM fromGltfMaterial mats
+  ds    <- mapM (\((vs, idx), mat) -> initResources idx vs mat 0) $ zip (concat stuff) mats'
+  return (ds, txs mats')
     where
-      fromGltfMaterialName :: Text -> IO R.Material
-      fromGltfMaterialName m = R.read $ matPath $ unpack m
-        where
-          matPath :: String -> String
-          matPath s = "./mat/" ++ s ++ "/" ++ s
+      txs = concatMap R.textures
+      fromGltfMaterial :: Gltf.Material -> IO R.Material
+      fromGltfMaterial mat =
+        R.read 
+        $ case Gltf.name mat of
+            Nothing -> "./mat/checkerboard/checkerboard"
+            Just s  -> "./mat/" ++ unpack s ++ "/" ++ unpack s
 
 fromVertex3 :: Vertex3 Double -> [GLfloat]
 fromVertex3 (Vertex3 x y z) = [double2Float x, double2Float y, double2Float z]
 
-initResources :: [GLfloat] -> [GLenum] -> Gltf.Material -> Double -> IO Descriptor
+initResources :: [GLfloat] -> [GLenum] -> R.Material -> Double -> IO Descriptor
 initResources vs idx mat z0 =  
   do
     -- print $ mat
@@ -476,11 +472,16 @@ initResources vs idx mat z0 =
     vertexAttribArray uvCoords    $= Enabled
 
     -- || Shaders
+    print $ "mat : " ++ show mat
     program <- loadShaders [
         -- ShaderInfo VertexShader   (FileSource "shaders/checkerboard/src/shader.vert"),
         -- ShaderInfo FragmentShader (FileSource "shaders/checkerboard/src/shader.frag")]
-        ShaderInfo VertexShader   (FileSource "shaders/test/shader.vert"),
-        ShaderInfo FragmentShader (FileSource "shaders/test/shader.frag")]
+        -- ShaderInfo VertexShader   (FileSource "mat/test/src/shader.vert"),
+        -- ShaderInfo FragmentShader (FileSource "mat/test/src/shader.frag")]
+        -- ShaderInfo VertexShader   (FileSource "shaders/test/shader.vert"),
+        -- ShaderInfo FragmentShader (FileSource "shaders/test/shader.frag")]
+        ShaderInfo VertexShader   (FileSource $ vertShader mat),
+        ShaderInfo FragmentShader (FileSource $ fragShader mat)]
     currentProgram $= Just program
 
     -- || Unload buffers
@@ -496,7 +497,7 @@ renderOutput _ _ ( _,Nothing) = quit >> return True
 renderOutput window gs (g,_) = do
   let
     timer = 0.01 * (fromIntegral $ tick g)
-    ds'   = descriptor <$> drs g :: [Descriptor]
+    --ds'   = descriptor <$> drs g :: [Descriptor]
 
   clearColor $= Color4 timer 0.0 0.0 1.0
   GL.clear [ColorBuffer, DepthBuffer]
@@ -507,13 +508,12 @@ renderOutput window gs (g,_) = do
   depthFunc $= Just Less
   cullFace  $= Just Back
 
-
   mapM_ (\dr -> do
             bindUniforms g dr
             let (Descriptor triangles numIndices _) = descriptor dr
             bindVertexArrayObject $= Just triangles
             drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
-        ) (drs g)
+        ) (drs g) --[head $ reverse $ drs g] --(drs g)
 
   glSwapWindow window >> return False
 
@@ -532,14 +532,15 @@ bindUniforms g dr =
       u_mouse' = (0,0)
       hmap'     = hmap g
 
-    --(Descriptor _ _ u_prog') = d'      
-    u_prog' <- if True
-      then
-      loadShaders [
-      ShaderInfo VertexShader   (FileSource "shaders/test/shader.vert"),
-      ShaderInfo FragmentShader (FileSource "shaders/test/shader.frag")]
-      else
-      (\(Descriptor _ _ u_prog') -> return u_prog') d'
+      (Descriptor _ _ u_prog') = d'
+    print $ "d' : " ++ show d'
+    -- u_prog' <- if False
+    --   then
+    --   loadShaders [
+    --   ShaderInfo VertexShader   (FileSource "shaders/test/shader.vert"),
+    --   ShaderInfo FragmentShader (FileSource "shaders/test/shader.frag")]
+    --   else
+    --   (\(Descriptor _ _ u_prog') -> return u_prog') d'
 
     currentProgram $= Just u_prog'
 
@@ -637,6 +638,9 @@ bindUniforms g dr =
 
     -- | Allocate Textures
     texture Texture2D        $= Enabled
+    print $ "txs'    : " ++ show txs'
+    print $ "hmap'   : " ++ show hmap'
+    print $ "u_prog' : " ++ show u_prog'
     mapM_ (allocateTextures u_prog' hmap') txs'
 
     -- | Unload buffers
@@ -653,6 +657,10 @@ bindUniforms g dr =
 allocateTextures :: Program -> [(UUID, GLuint)] -> Texture -> IO ()
 allocateTextures program0 hmap tx =
   do
+    putStrLn "."
+    print $ "program0 : " ++ show program0
+    print $ "tx : " ++ show tx
+    putStrLn "..."
     location <- SV.get (uniformLocation program0 (T.name tx))
     uniform location $= TextureUnit txid
       where
@@ -699,14 +707,19 @@ main = do
   _ <- setMouseLocationMode RelativeLocation
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
-  (ds, txs) <- toDescriptor "src/Model.gltf" :: IO ([Descriptor],[Texture])
+  (ds0, txs0) <- toDescriptor "src/pighead.gltf" :: IO ([Descriptor],[Texture])
+  (ds1, txs1) <- toDescriptor "src/grid.gltf"    :: IO ([Descriptor],[Texture])
     
   let
+    ds    = ds0 ++ ds1
+    txs   = txs0 ++ txs1
     drws  = toDrawable "" 0.0 (resX', resY') (camera initGame) (identity :: M44 Double) defaultBackendOptions <$> ds :: [Drawable]
-  -- print txs
+  print $ "drws : " ++ show drws
   let
     uuids = fmap T.uuid txs
-    hmap' = DS.toList . DS.fromList $ zip uuids [0..]    
+    hmap' = DS.toList . DS.fromList $ zip uuids [0..]
+  print $ "hmap' : " ++ show hmap'
+  let 
     initGame' =
       initGame { drs  = drws
                , hmap = hmap'
@@ -719,6 +732,7 @@ main = do
   animate window dt initSettings initGame' updateGame 
   putStrLn "Exiting Game"
 
+defaultGltfMat :: Gltf.Material
 defaultGltfMat = Gltf.Material
   { emissiveFactor = (0,0,0)
   , alphaMode      = MaterialAlphaMode {unMaterialAlphaMode = "OPAQUE"}
