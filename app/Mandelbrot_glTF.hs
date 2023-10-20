@@ -50,10 +50,8 @@ import Load_glTF (loadMeshPrimitives)
 import Model_glTF
 
 import Graphics.RedViz.Texture as T
---import Graphics.RedViz.Drawable
 import Graphics.RedViz.Descriptor
 import Graphics.RedViz.Backend
---import Graphics.RedViz.Camera
 import Graphics.RedViz.LoadShaders
 import Graphics.RedViz.GLUtil.JuicyTextures
 import Graphics.RedViz.GLUtil                 (readTexture, texture2DWrap)
@@ -113,6 +111,28 @@ defaultCamController =
     , yprS = (V3 0 0 0) -- sum of rotations
     }
   )
+
+data CoordSys =
+    WorldSpace
+  | ObjectSpace
+  deriving Show
+
+data Solver =
+    Identity
+  | Translate
+    {
+      _space :: CoordSys
+    , _txyz  :: V3 Double
+    , _tvel  :: V3 Double
+    }
+
+data Object
+  =  Object
+     {
+       xform    :: M44 Double
+     , drws     :: [Drawable]
+     , slvr     :: Solver
+     }
 
 data Drawable
   =  Drawable

@@ -1,0 +1,13 @@
+{
+    "name": "test1",
+    "fragShader": "./mat/test1/src/shader.frag",
+    "vertShader": "./mat/test1/src/shader.vert",
+    "geomShader": null,
+    "textures": [
+        {
+            "name": "checkerboard",
+            "path": "./textures/checkerboard.png",
+            "uuid": "40375d42-c62e-4bfa-975c-03fdd41b01b4"
+        }
+    ]
+}

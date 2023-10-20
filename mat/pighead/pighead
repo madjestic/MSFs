@@ -1,0 +1,13 @@
+{
+    "name": "pighead",
+    "fragShader": "./mat/pighead/src/shader.frag",
+    "vertShader": "./mat/pighead/src/shader.vert",
+    "geomShader": null,
+    "textures": [
+        {
+            "name": "pighead",
+            "path": "./src/testgeometry_pighead_lowres.png",
+            "uuid": "40375d42-c62e-4bfa-975c-03fdd41b01b4"
+        }
+    ]
+}
