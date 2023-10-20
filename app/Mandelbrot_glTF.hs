@@ -57,7 +57,7 @@ import Graphics.RedViz.Backend
 import Graphics.RedViz.LoadShaders
 import Graphics.RedViz.GLUtil.JuicyTextures
 import Graphics.RedViz.GLUtil                 (readTexture, texture2DWrap)
-import Graphics.RedViz.Rendering (bindTexture, loadTex)
+import Graphics.RedViz.Rendering (bindTexture, bindTexture', loadTex)
 import Graphics.RedViz.Material as R
 
 import RIO (throwString)
@@ -118,6 +118,8 @@ data Drawable
   =  Drawable
      { 
        descriptor :: Descriptor
+     , material   :: R.Material
+     , dtxs        :: [(Int, (Texture, TextureObject))]
      , options    :: BackendOptions
      , u_xform    :: M44 Double
      } deriving Show
@@ -159,7 +161,7 @@ data Game = Game
   , uniforms :: Uniforms
   , drs      :: [Drawable]
   , hmap     :: [(UUID, GLuint)]
-  , txs      :: [Texture]
+  , txs      :: [(Texture, TextureObject)]
   } deriving Show
 
 data GameSettings = GameSettings
@@ -190,6 +192,11 @@ initSettings = GameSettings
 type Time        = Double
 type Res         = (CInt, CInt)
 
+unzipWith :: Eq a => [a] -> [(a,b)] -> [(a,b)]
+unzipWith xs xys = xys'
+  where
+    xys' = filter (\xy -> fst xy `elem` xs) xys
+
 toDrawable ::
      String
   -> Time
@@ -197,19 +204,24 @@ toDrawable ::
   -> Camera
   -> M44 Double
   -> BackendOptions
-  -> Descriptor
+  -> [(Texture, TextureObject)]
+  -> (Descriptor, R.Material)
   -> Drawable
-toDrawable name' time' res' cam xformO opts d = dr
+-- Material ([Texture]) -> [(Texture, TextureObject)] -> [TexgtureObject]
+toDrawable name' time' res' cam xformO opts txobjs (d, mat') = dr
   where
-    apt'    = apt cam
-    foc'    = foc cam
+    apt'   = apt cam
+    foc'   = foc cam
     xformC =  transform (controller cam) :: M44 Double
-    --xformC =  undefined :: M44 Double
-    dr  =
+    txs'   = R.textures mat'
+    txobjs' = zip [0..] $ unzipWith txs' txobjs :: [(Int, (Texture, TextureObject))]
+    dr =
       Drawable
       { 
         u_xform    = xformO
       , descriptor = d
+      , material   = mat'
+      , dtxs       = txobjs'
       , options    = opts
       }
 
@@ -401,15 +413,17 @@ toUV Planar =
     ps = [(1.0, 1.0),( 0.0, 1.0),( 0.0, 0.0)
          ,(1.0, 1.0),( 0.0, 0.0),( 1.0, 0.0)] :: [Pos]
 
-toDescriptor :: FilePath -> IO ([Descriptor], [Texture])
+--toDescriptor :: FilePath -> IO ([Descriptor], [Texture])
+toDescriptor :: FilePath -> IO ([Descriptor], [R.Material])
 toDescriptor file = do
   (stuff, mats) <- loadGltf file -- "src/pighead.gltf"
   print mats
   mats' <- mapM fromGltfMaterial mats
   ds    <- mapM (\((vs, idx), mat) -> initResources idx vs mat 0) $ zip (concat stuff) mats'
-  return (ds, txs mats')
+  --return (ds, txs mats')
+  return (ds, mats')
     where
-      txs = concatMap R.textures
+      --txs = concatMap R.textures
       fromGltfMaterial :: Gltf.Material -> IO R.Material
       fromGltfMaterial mat =
         R.read 
@@ -472,14 +486,8 @@ initResources vs idx mat z0 =
     vertexAttribArray uvCoords    $= Enabled
 
     -- || Shaders
-    print $ "mat : " ++ show mat
+    -- print $ "mat : " ++ show mat
     program <- loadShaders [
-        -- ShaderInfo VertexShader   (FileSource "shaders/checkerboard/src/shader.vert"),
-        -- ShaderInfo FragmentShader (FileSource "shaders/checkerboard/src/shader.frag")]
-        -- ShaderInfo VertexShader   (FileSource "mat/test/src/shader.vert"),
-        -- ShaderInfo FragmentShader (FileSource "mat/test/src/shader.frag")]
-        -- ShaderInfo VertexShader   (FileSource "shaders/test/shader.vert"),
-        -- ShaderInfo FragmentShader (FileSource "shaders/test/shader.frag")]
         ShaderInfo VertexShader   (FileSource $ vertShader mat),
         ShaderInfo FragmentShader (FileSource $ fragShader mat)]
     currentProgram $= Just program
@@ -509,6 +517,7 @@ renderOutput window gs (g,_) = do
   cullFace  $= Just Back
 
   mapM_ (\dr -> do
+            print $ "dr : " ++ show dr
             bindUniforms g dr
             let (Descriptor triangles numIndices _) = descriptor dr
             bindVertexArrayObject $= Just triangles
@@ -523,7 +532,8 @@ bindUniforms :: Game -> Drawable -> IO ()
 bindUniforms g dr =
   do
     let
-      txs'     = txs g
+      --txs' = txs g :: [(Texture, TextureObject)]
+      --txs' = dtxs dr :: [(Texture, TextureObject)]
       u_xform' = u_xform dr
       d'       = descriptor dr :: Descriptor
       u_cam'   = (transform.controller.camera) g
@@ -533,7 +543,8 @@ bindUniforms g dr =
       hmap'     = hmap g
 
       (Descriptor _ _ u_prog') = d'
-    print $ "d' : " ++ show d'
+    -- print $ "d'   : " ++ show d'
+    -- print $ "txs' : " ++ show txs'
     -- u_prog' <- if False
     --   then
     --   loadShaders [
@@ -570,7 +581,6 @@ bindUniforms g dr =
     location3         <- SV.get (uniformLocation u_prog' "persp")
     uniform location3 $= persp
 
-    --print $ show u_cam'
     camera            <- GL.newMatrix RowMajor $ toList' u_cam' :: IO (GLmatrix GLfloat)
     location4         <- SV.get (uniformLocation u_prog' "camera")
     uniform location4 $= camera
@@ -638,10 +648,11 @@ bindUniforms g dr =
 
     -- | Allocate Textures
     texture Texture2D        $= Enabled
-    print $ "txs'    : " ++ show txs'
+    print $ "dtxs    : " ++ show (dtxs dr)
     print $ "hmap'   : " ++ show hmap'
     print $ "u_prog' : " ++ show u_prog'
-    mapM_ (allocateTextures u_prog' hmap') txs'
+    mapM_ (allocateTextures u_prog' hmap') (dtxs dr) -- TODO: this is ignored, should bind an appropriate texture
+    putStrLn "..."
 
     -- | Unload buffers
     bindVertexArrayObject         $= Nothing
@@ -654,17 +665,30 @@ bindUniforms g dr =
           ( u_xform' ^._xyz )
           ( fromV3V4 (transpose u_xform' ^._w._xyz + transpose u_cam' ^._w._xyz) 1.0 ) :: M44 Double
           
-allocateTextures :: Program -> [(UUID, GLuint)] -> Texture -> IO ()
-allocateTextures program0 hmap tx =
+allocateTextures :: Program -> [(UUID, GLuint)] -> (Int, (Texture, TextureObject)) -> IO ()
+allocateTextures program0 hmap (txid, (tx, txo)) =
   do
-    putStrLn "."
+    putStrLn "allocateTextures : "
     print $ "program0 : " ++ show program0
-    print $ "tx : " ++ show tx
-    putStrLn "..."
+    print $ "hmap     : " ++ show hmap
+    print $ "tx       : " ++ show tx
+    print $ "txid     : " ++ show txid
+    print $ "T.name tx : " ++ show (T.name tx)
+    print $ "txo : " ++ show txo
+
+    --let txid' = snd hmap
+    activeTexture $= TextureUnit 0
+    textureBinding Texture2D $= Just txo
+    --texture Texture2D        $= Enabled    
+    --activeTexture $= TextureUnit txid
+    --activeTexture $= TextureUnit (textureID tx0)
+    
     location <- SV.get (uniformLocation program0 (T.name tx))
-    uniform location $= TextureUnit txid
-      where
-        txid = fromMaybe 0 (lookup (uuid tx) hmap)
+    --uniform location $= TextureUnit txid
+    --uniform location $= TextureUnit 0
+    return ()
+      -- where
+      --   txid = fromMaybe 0 (lookup (uuid tx) hmap) :: GLuint
 
 fromList :: [a] -> M44 a
 fromList xs = V4
@@ -707,27 +731,35 @@ main = do
   _ <- setMouseLocationMode RelativeLocation
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
-  (ds0, txs0) <- toDescriptor "src/pighead.gltf" :: IO ([Descriptor],[Texture])
-  (ds1, txs1) <- toDescriptor "src/grid.gltf"    :: IO ([Descriptor],[Texture])
+  (ds0, ms0) <- toDescriptor "src/pighead.gltf" :: IO ([Descriptor],[R.Material])
+  (ds1, ms1) <- toDescriptor "src/grid.gltf"    :: IO ([Descriptor],[R.Material])
     
   let
+    ms    = ms0 ++ ms1
     ds    = ds0 ++ ds1
-    txs   = txs0 ++ txs1
-    drws  = toDrawable "" 0.0 (resX', resY') (camera initGame) (identity :: M44 Double) defaultBackendOptions <$> ds :: [Drawable]
-  print $ "drws : " ++ show drws
+    txs0  = concatMap R.textures ms0
+    txs1  = concatMap R.textures ms1
+    txs'  = txs0 ++ txs1
+    --drws  = toDrawable "" 0.0 (resX', resY') (camera initGame) (identity :: M44 Double) defaultBackendOptions <$> (zip ds ms) :: [Drawable]
+  --print $ "drws : " ++ show drws
   let
-    uuids = fmap T.uuid txs
+    uuids = fmap T.uuid txs'
     hmap' = DS.toList . DS.fromList $ zip uuids [0..]
-  print $ "hmap' : " ++ show hmap'
-  let 
+  --print $ "hmap' : " ++ show hmap'
+
+  putStrLn "Binding Textures..."
+  txTuples <- mapM (bindTexture' hmap') txs' :: IO [(Texture, TextureObject)]
+    --txObjs' <- mapM  
+
+  let
+    --txTuples = zip txs' txObjs :: [(Texture, TextureObject)]
+    drws  = toDrawable "" 0.0 (resX', resY') (camera initGame) (identity :: M44 Double) defaultBackendOptions txTuples <$> zip ds ms -- :: [Drawable]
     initGame' =
       initGame { drs  = drws
                , hmap = hmap'
-               , txs  = txs }
+               , txs  = txTuples :: [(Texture, TextureObject)]
+               }
     dt    = 0.2 :: Double -- time increment
-
-  putStrLn "Binding Textures..."
-  mapM_ (bindTexture hmap') txs
       
   animate window dt initSettings initGame' updateGame 
   putStrLn "Exiting Game"
