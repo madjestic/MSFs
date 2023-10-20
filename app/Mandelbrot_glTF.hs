@@ -160,8 +160,6 @@ data Game = Game
   , camera   :: Camera
   , uniforms :: Uniforms
   , drs      :: [Drawable]
-  , hmap     :: [(UUID, GLuint)]
-  , txs      :: [(Texture, TextureObject)]
   } deriving Show
 
 data GameSettings = GameSettings
@@ -178,8 +176,6 @@ initGame =
   , camera   = defaultCam
   , uniforms = defaultUniforms
   , drs      = []
-  , hmap     = []
-  , txs      = []
   }
 
 initSettings :: GameSettings
@@ -189,16 +185,16 @@ initSettings = GameSettings
   , resY = 600
   }
 
-type Time        = Double
-type Res         = (CInt, CInt)
+type Time = Double
+type Res  = (CInt, CInt)
 
 unzipWith :: Eq a => [a] -> [(a,b)] -> [(a,b)]
 unzipWith xs xys = xys'
   where
     xys' = filter (\xy -> fst xy `elem` xs) xys
 
-toDrawable ::
-     String
+toDrawable
+  :: String
   -> Time
   -> Res
   -> Camera
@@ -207,21 +203,20 @@ toDrawable ::
   -> [(Texture, TextureObject)]
   -> (Descriptor, R.Material)
   -> Drawable
--- Material ([Texture]) -> [(Texture, TextureObject)] -> [TexgtureObject]
-toDrawable name' time' res' cam xformO opts txobjs (d, mat') = dr
+toDrawable name' time' res' cam xformO opts txos (d, mat') = dr
   where
     apt'   = apt cam
     foc'   = foc cam
     xformC =  transform (controller cam) :: M44 Double
     txs'   = R.textures mat'
-    txobjs' = zip [0..] $ unzipWith txs' txobjs :: [(Int, (Texture, TextureObject))]
+    txos'  = zip [0..] $ unzipWith txs' txos :: [(Int, (Texture, TextureObject))] 
     dr =
       Drawable
       { 
         u_xform    = xformO
       , descriptor = d
       , material   = mat'
-      , dtxs       = txobjs'
+      , dtxs       = txos'
       , options    = opts
       }
 
@@ -413,17 +408,13 @@ toUV Planar =
     ps = [(1.0, 1.0),( 0.0, 1.0),( 0.0, 0.0)
          ,(1.0, 1.0),( 0.0, 0.0),( 1.0, 0.0)] :: [Pos]
 
---toDescriptor :: FilePath -> IO ([Descriptor], [Texture])
-toDescriptor :: FilePath -> IO ([Descriptor], [R.Material])
+toDescriptor :: FilePath -> IO [(Descriptor, R.Material)]
 toDescriptor file = do
   (stuff, mats) <- loadGltf file -- "src/pighead.gltf"
-  print mats
   mats' <- mapM fromGltfMaterial mats
   ds    <- mapM (\((vs, idx), mat) -> initResources idx vs mat 0) $ zip (concat stuff) mats'
-  --return (ds, txs mats')
-  return (ds, mats')
+  return $ zip ds mats'
     where
-      --txs = concatMap R.textures
       fromGltfMaterial :: Gltf.Material -> IO R.Material
       fromGltfMaterial mat =
         R.read 
@@ -517,7 +508,6 @@ renderOutput window gs (g,_) = do
   cullFace  $= Just Back
 
   mapM_ (\dr -> do
-            print $ "dr : " ++ show dr
             bindUniforms g dr
             let (Descriptor triangles numIndices _) = descriptor dr
             bindVertexArrayObject $= Just triangles
@@ -532,26 +522,12 @@ bindUniforms :: Game -> Drawable -> IO ()
 bindUniforms g dr =
   do
     let
-      --txs' = txs g :: [(Texture, TextureObject)]
-      --txs' = dtxs dr :: [(Texture, TextureObject)]
-      u_xform' = u_xform dr
-      d'       = descriptor dr :: Descriptor
-      u_cam'   = (transform.controller.camera) g
+      u_xform'  = u_xform dr
+      d'        = descriptor dr :: Descriptor
+      u_cam'    = (transform.controller.camera) g
+      u_mouse'  = (0,0)
       (Uniforms u_time' u_res' _ u_cam_a' u_cam_f' u_ypr' u_yprS' u_vel' u_accel') = uniforms g
-      --(Uniforms u_time' u_res' u_cam' u_cam_a' u_cam_f' u_ypr' u_yprS' u_vel' u_accel') = uniforms g
-      u_mouse' = (0,0)
-      hmap'     = hmap g
-
       (Descriptor _ _ u_prog') = d'
-    -- print $ "d'   : " ++ show d'
-    -- print $ "txs' : " ++ show txs'
-    -- u_prog' <- if False
-    --   then
-    --   loadShaders [
-    --   ShaderInfo VertexShader   (FileSource "shaders/test/shader.vert"),
-    --   ShaderInfo FragmentShader (FileSource "shaders/test/shader.frag")]
-    --   else
-    --   (\(Descriptor _ _ u_prog') -> return u_prog') d'
 
     currentProgram $= Just u_prog'
 
@@ -648,11 +624,7 @@ bindUniforms g dr =
 
     -- | Allocate Textures
     texture Texture2D        $= Enabled
-    print $ "dtxs    : " ++ show (dtxs dr)
-    print $ "hmap'   : " ++ show hmap'
-    print $ "u_prog' : " ++ show u_prog'
-    mapM_ (allocateTextures u_prog' hmap') (dtxs dr) -- TODO: this is ignored, should bind an appropriate texture
-    putStrLn "..."
+    mapM_ (allocateTextures u_prog') (dtxs dr) -- TODO: this is ignored, should bind an appropriate texture
 
     -- | Unload buffers
     bindVertexArrayObject         $= Nothing
@@ -665,30 +637,12 @@ bindUniforms g dr =
           ( u_xform' ^._xyz )
           ( fromV3V4 (transpose u_xform' ^._w._xyz + transpose u_cam' ^._w._xyz) 1.0 ) :: M44 Double
           
-allocateTextures :: Program -> [(UUID, GLuint)] -> (Int, (Texture, TextureObject)) -> IO ()
-allocateTextures program0 hmap (txid, (tx, txo)) =
+allocateTextures :: Program -> (Int, (Texture, TextureObject)) -> IO ()
+allocateTextures program0 (txid, (tx, txo)) =
   do
-    putStrLn "allocateTextures : "
-    print $ "program0 : " ++ show program0
-    print $ "hmap     : " ++ show hmap
-    print $ "tx       : " ++ show tx
-    print $ "txid     : " ++ show txid
-    print $ "T.name tx : " ++ show (T.name tx)
-    print $ "txo : " ++ show txo
-
-    --let txid' = snd hmap
-    activeTexture $= TextureUnit 0
+    activeTexture $= TextureUnit (fromIntegral txid)
     textureBinding Texture2D $= Just txo
-    --texture Texture2D        $= Enabled    
-    --activeTexture $= TextureUnit txid
-    --activeTexture $= TextureUnit (textureID tx0)
-    
-    location <- SV.get (uniformLocation program0 (T.name tx))
-    --uniform location $= TextureUnit txid
-    --uniform location $= TextureUnit 0
     return ()
-      -- where
-      --   txid = fromMaybe 0 (lookup (uuid tx) hmap) :: GLuint
 
 fromList :: [a] -> M44 a
 fromList xs = V4
@@ -719,11 +673,15 @@ animate window dt gs g sf = do
 
 main :: IO ()
 main = do
-  let (resX', resY') =
-        (\opts ->
-           ( unsafeCoerce $ fromIntegral $ resX opts
-           , unsafeCoerce $ fromIntegral $ resY opts))
-        initSettings
+  let
+    (resX', resY') =
+      (\opts ->
+          ( unsafeCoerce $ fromIntegral $ resX opts
+          , unsafeCoerce $ fromIntegral $ resY opts))
+      initSettings
+    models =
+      [ "src/pighead.gltf"
+      , "src/grid.gltf" ]
   
   initializeAll
   window <- openWindow "Mandelbrot + SDL2/OpenGL" (resX', resY')
@@ -731,37 +689,36 @@ main = do
   _ <- setMouseLocationMode RelativeLocation
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
-  (ds0, ms0) <- toDescriptor "src/pighead.gltf" :: IO ([Descriptor],[R.Material])
-  (ds1, ms1) <- toDescriptor "src/grid.gltf"    :: IO ([Descriptor],[R.Material])
+  dms  <- mapM toDescriptor models :: IO [[(Descriptor, R.Material)]]
     
-  let
-    ms    = ms0 ++ ms1
-    ds    = ds0 ++ ds1
-    txs0  = concatMap R.textures ms0
-    txs1  = concatMap R.textures ms1
-    txs'  = txs0 ++ txs1
-    --drws  = toDrawable "" 0.0 (resX', resY') (camera initGame) (identity :: M44 Double) defaultBackendOptions <$> (zip ds ms) :: [Drawable]
-  --print $ "drws : " ++ show drws
-  let
-    uuids = fmap T.uuid txs'
-    hmap' = DS.toList . DS.fromList $ zip uuids [0..]
-  --print $ "hmap' : " ++ show hmap'
-
+  let -- this basically collects all the materials, reads textures from them and uniquely binds
+    txs   = concatMap (\(_,m) -> R.textures m) $ concat dms
+    uuids = fmap T.uuid txs
+    txord = DS.toList . DS.fromList $ zip uuids [0..] -- this guarantees unique texture (uuid) bindings
+        
   putStrLn "Binding Textures..."
-  txTuples <- mapM (bindTexture' hmap') txs' :: IO [(Texture, TextureObject)]
-    --txObjs' <- mapM  
+  txTuples <- mapM (bindTexture' txord) txs :: IO [(Texture, TextureObject)]
 
   let
-    --txTuples = zip txs' txObjs :: [(Texture, TextureObject)]
-    drws  = toDrawable "" 0.0 (resX', resY') (camera initGame) (identity :: M44 Double) defaultBackendOptions txTuples <$> zip ds ms -- :: [Drawable]
-    initGame' =
-      initGame { drs  = drws
-               , hmap = hmap'
-               , txs  = txTuples :: [(Texture, TextureObject)]
-               }
-    dt    = 0.2 :: Double -- time increment
+    dt   = 0.2 :: Double -- time increment
+    drws =
+      toDrawable
+      ""
+      0.0
+      (resX', resY')
+      (camera initGame)
+      (identity :: M44 Double)
+      defaultBackendOptions
+      txTuples
+      <$> concat dms -- :: [Drawable]
       
-  animate window dt initSettings initGame' updateGame 
+  animate
+    window
+    dt
+    initSettings
+    initGame { drs  = drws }
+    updateGame
+  
   putStrLn "Exiting Game"
 
 defaultGltfMat :: Gltf.Material
