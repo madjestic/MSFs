@@ -102,9 +102,9 @@ defaultCamController =
     { debug = (0,0)
     , transform =  
       (V4
-        (V4 1 0 0 0)
+        (V4 1 0 0 0) -- <- . . . x ...
         (V4 0 1 0 0) -- <- . . . y ...
-        (V4 0 0 1 0) -- <- . . . z-component of transform
+        (V4 0 0 1 (-10.0)) -- <- . . . z-component of transform
         (V4 0 0 0 1))
     , vel  = (V3 0 0 0) -- velocity
     , ypr  = (V3 0 0 0) -- rotation
@@ -121,9 +121,9 @@ data Solver =
     Identity
   | Translate
     {
-      _space :: CoordSys
-    , _txyz  :: V3 Double
-    , _tvel  :: V3 Double
+      space :: CoordSys
+    , txyz  :: V3 Double
+    , tvel  :: V3 Double
     }
 
 data Object
@@ -163,8 +163,8 @@ defaultUniforms =
   Uniforms
   {
     u_time  = 0.0
-  , u_res   = (0,0)
-  , u_cam   = (identity :: M44 Double)
+  , u_res   = (800,600)
+  , u_cam   = identity :: M44 Double
   , u_cam_a = 50.0
   , u_cam_f = 100.0
   , u_cam_ypr   = (\(V3 x y z) -> (x,y,z)) $ ypr  defaultCamController
@@ -569,7 +569,7 @@ bindUniforms g dr =
         foc = u_cam_f' -- focal length
         proj =
           LP.infinitePerspective
-          (2.0 * atan ( apt/2.0 / foc )) -- FOV
+          (2.0 * atan ( apt/foc/2.0 )) -- FOV
           (resX/resY)                    -- Aspect
           0.01                           -- Near
 
@@ -736,7 +736,14 @@ main = do
     window
     dt
     initSettings
-    initGame { drs  = drws }
+    initGame
+      { drs      = drws
+      , uniforms = defaultUniforms
+                     { u_res   = (resX', resY')
+                     , u_cam_a = apt defaultCam
+                     , u_cam_f = foc defaultCam
+                     }
+      }
     updateGame
   
   putStrLn "Exiting Game"

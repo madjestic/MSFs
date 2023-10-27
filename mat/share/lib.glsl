@@ -1,10 +1,8 @@
 #define M_PI 3.1415926535897932384626433832795
 
-float lib_suka = 2.0f;
-
 float s1  = 1.0f;
 float s2  = 10.0f;
-float far = 20000.0f;
+float far = 2000.0f;
 
 float f1 (in float x, in float s)
 {
