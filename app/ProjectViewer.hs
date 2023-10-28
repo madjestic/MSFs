@@ -156,7 +156,7 @@ toObject :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]
 toObject proj txTuples' dms' pobj = do
   let
     models' = (\idx -> models proj!!idx) <$> modelIDXs pobj
-  dms  <- mapM toDescriptorMat models' :: IO [[(Descriptor, R.Material)]] --
+    dms     = (dms'!!) <$> modelIDXs pobj
   
   let
     txs          = concatMap (\(_,m) -> R.textures m) $ concat dms :: [Texture]
@@ -811,6 +811,8 @@ main = do
   _ <- setMouseLocationMode RelativeLocation
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
+  
+  putStrLn "Compiling Materials"
   dms  <- mapM toDescriptorMat models' :: IO [[(Descriptor, R.Material)]] --
     
   let -- this basically collects all the materials, reads textures from them and uniquely binds
@@ -820,17 +822,14 @@ main = do
         
   putStrLn "Binding Textures..."
   txTuples <- mapM (bindTexture' txord) txs :: IO [(Texture, TextureObject)]
+  objs'    <- toObjects initProject txTuples dms
 
-  let
-    dt   = 0.2 :: Double -- time increment
-  objs' <- toObjects initProject txTuples dms
-      
   animate
     window
-    dt
+    (0.2 :: Double) -- time increment
     initSettings
     initGame
-      { --drs      = drws
+      { 
         objs      = objs'
        , uniforms = defaultUniforms
                      { u_res   = (resX', resY')
