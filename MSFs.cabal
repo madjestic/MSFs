@@ -85,8 +85,8 @@ executable Mandelbrot
                     , src
     default-language: Haskell2010
 
-executable Mandelbrot_glTF
-    main-is:          Mandelbrot_glTF.hs
+executable ProjectViewer
+    main-is:          ProjectViewer.hs
     ghc-options:    -fprint-potential-instances
     build-depends:    base ^>=4.16.4.0
                     , aeson
@@ -111,6 +111,7 @@ executable Mandelbrot_glTF
                     , OpenGL
                     , sdl2
                     , simple-affine-space
+                    , sort
                     , text
                     , transformers
                     , microlens
@@ -125,6 +126,7 @@ executable Mandelbrot_glTF
                     LoadShaders
                   , Load_glTF
                   , Model_glTF
+                  , Projects.Test                  
                   , Graphics.RedViz.Material
                   , Graphics.RedViz.Texture
                   , Graphics.RedViz.Utils
@@ -150,6 +152,8 @@ executable Mandelbrot_glTF
                   , Graphics.RedViz.Texture.Lens
                   , Graphics.RedViz.VAO
                   , Graphics.RedViz.Widget
+                  , Graphics.RedViz.Project
+                  , Graphics.RedViz.Project.Model
                   
     hs-source-dirs:
                     app
@@ -168,7 +172,6 @@ executable Mandelbrot_glTF
                     DerivingStrategies
                     DerivingVia
                     DeriveGeneric
-
                                                               
     default-language:
                     Haskell2010
@@ -252,102 +255,6 @@ library
     , vector
   default-language: Haskell2010
                     
--- executable Load_glTF
---     main-is:          Load_glTF.hs
---     build-depends:    base ^>=4.16.4.0
---                     , bytestring
---                     , dunai
---                     , OpenGL
---                     , sdl2
---                     , text
---                     , transformers
---                     , gltf-codec
---                     , gltf-loader
---                     , microlens
---                     , vector
---                     , StateVar
---                     , keid-resource-gltf
---                     , keid-core
---                     , geomancy
---                     -- , safe-exceptions
---                     -- , filepath
---                     -- , unordered-containers
---                     -- , geomancy
---                     -- , vector
---                     , rio
---                     , gl-block
---                     -- , keid-core
-                    
---     other-modules:
---                     Model_glTF
---                     -- LoadShaders
---                   --, Resource.Gltf.Load
-                    
---     hs-source-dirs:
---                     app
---                   , src
-                    
---     default-extensions:
---       NoImplicitPrelude
---       ApplicativeDo
---       BangPatterns
---       BinaryLiterals
---       BlockArguments
---       ConstrainedClassMethods
---       ConstraintKinds
---       DataKinds
---       DefaultSignatures
---       DeriveDataTypeable
---       DeriveFunctor
---       DeriveGeneric
---       DeriveLift
---       DeriveTraversable
---       DerivingStrategies
---       DerivingVia
---       DuplicateRecordFields
---       EmptyCase
---       EmptyDataDeriving
---       ExistentialQuantification
---       ExplicitForAll
---       FlexibleContexts
---       FlexibleInstances
---       FunctionalDependencies
---       GADTs
---       GeneralizedNewtypeDeriving
---       HexFloatLiterals
---       ImportQualifiedPost
---       InstanceSigs
---       KindSignatures
---       LambdaCase
---       LiberalTypeSynonyms
---       MultiParamTypeClasses
---       NamedFieldPuns
---       NamedWildCards
---       NumDecimals
---       NumericUnderscores
---       OverloadedStrings
---       PatternSynonyms
---       PostfixOperators
---       QuantifiedConstraints
---       QuasiQuotes
---       RankNTypes
---       RecordWildCards
---       ScopedTypeVariables
---       StandaloneDeriving
---       StandaloneKindSignatures
---       StrictData
---       TemplateHaskell
---       TupleSections
---       TypeApplications
---       TypeFamilies
---       TypeOperators
---       TypeSynonymInstances
---       UnicodeSyntax
---       ViewPatterns
-                                                              
---     default-language:
---                     Haskell2010
-
 executable Test_glTF
     main-is:          Test_glTF.hs
     build-depends:    base ^>=4.16.4.0
@@ -434,9 +341,8 @@ executable genUUID
               
   other-modules:
                 Paths_MSFs
-              , Graphics.RedViz.Project
               , Graphics.RedViz.Project.Model
-              , Graphics.RedViz.Project.Project
+              , Graphics.RedViz.Project.Lens
               , Graphics.RedViz.Camera.Lens
               , Graphics.RedViz.Drawable.Lens
               , Graphics.RedViz.Object.Lens
@@ -454,8 +360,45 @@ executable genUUID
               , Graphics.RedViz.Input.Mouse
               , Graphics.RedViz.Material.Lens
               , Graphics.RedViz.Texture
-              
 
   default-language:
                 Haskell2010
-                
+
+executable genProject
+  main-is:      genProject.hs
+  hs-source-dirs:
+                app
+              , src
+  --ghc-options:         -threaded -O2 -Wall -Werror -Wcompat -Widentities -Wno-unused-top-binds -Wno-orphans
+  ghc-options:         -threaded -O2
+  --cpp-options:         -DDEBUG
+  build-depends:
+                base                
+              , aeson               
+              , aeson-pretty        
+              , bytestring          
+              , containers          
+              , ilist                                         
+              , lens                
+              , linear              
+              , locators                        
+              , OpenGL              
+              , random                        
+              , simple-affine-space           
+              , text                
+              , sort                
+              , uuid                
+              , vector
+              , split
+
+  other-modules:
+                Paths_MSFs
+              , Graphics.RedViz.Project.Lens
+              , Graphics.RedViz.Project.Model
+              , Graphics.RedViz.Texture
+              , Graphics.RedViz.Utils
+              , Projects.Test
+              , Graphics.RedViz.Backend
+
+  default-language:
+                Haskell2010

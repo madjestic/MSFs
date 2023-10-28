@@ -48,7 +48,9 @@ import Data.Set as DS ( fromList, toList )
 
 import Load_glTF (loadMeshPrimitives)
 import Model_glTF
+import Projects.Test
 
+--import Graphics.RedViz.Project as P
 import Graphics.RedViz.Texture as T
 import Graphics.RedViz.Descriptor
 import Graphics.RedViz.Backend
@@ -120,44 +122,80 @@ data CoordSys =
 data Solver =
     Identity
   | Translate
-    {
-      space :: CoordSys
+    { space :: CoordSys
     , txyz  :: V3 Double
     , tvel  :: V3 Double
-    }
+    } deriving Show
+
+data PreObject
+  =  PreObject
+     {
+       pname          :: String
+     , ptype          :: String
+     , pidx           :: Integer
+     , uuid           :: UUID
+     , modelIDXs      :: [Int]
+     , presolvers     :: [String]
+     , presolverAttrs :: [[Double]]
+     , solvers        :: [String]
+     , solverAttrs    :: [[Double]]
+     , options        :: BackendOptions     
+     } deriving Show
 
 data Object
   =  Object
-     {
-       xform    :: M44 Double
+     { xform    :: M44 Double
      , drws     :: [Drawable]
      , slvr     :: Solver
-     }
+     } deriving Show
 
-toObject :: M44 Double -> [Drawable] -> Solver -> Object
-toObject mtx ds s = obj
-  where
+toObjects :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> IO [Object]
+toObjects prj txTuples dms = mapM (toObject prj txTuples dms) (preobjects prj)
+
+toObject :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> PreObject -> IO Object
+toObject proj txTuples' dms' pobj = do
+  let
+    models' = (\idx -> models proj!!idx) <$> modelIDXs pobj
+  dms  <- mapM toDescriptorMat models' :: IO [[(Descriptor, R.Material)]] --
+  
+  let
+    txs          = concatMap (\(_,m) -> R.textures m) $ concat dms :: [Texture]
+    txTuples     = filter (\(tx, txo) -> tx `elem` txs) txTuples' :: [(Texture, TextureObject)]
+    (resX, resY) = (fromIntegral (resx proj), fromIntegral (resy proj))
+
+    drs =
+      toDrawable
+      ""
+      0.0
+      (resX, resY)
+      (camera initGame)
+      (identity :: M44 Double)
+      defaultBackendOptions
+      txTuples
+      <$> concat dms
+      :: [Drawable]
+
+    mtx = identity :: M44 Double
     obj =
       Object
       { xform = mtx
-      , drws  = ds
-      , slvr  = s
-      }
+      , drws  = drs
+      , slvr  = Identity }
+
+  return obj
 
 data Drawable
   =  Drawable
-     { 
-       descriptor :: Descriptor
+     { descriptor :: Descriptor
      , material   :: R.Material
-     , dtxs        :: [(Int, (Texture, TextureObject))]
-     , options    :: BackendOptions
+     , dtxs       :: [(Int, (Texture, TextureObject))]
+     , doptions   :: BackendOptions
      , u_xform    :: M44 Double
      } deriving Show
 
 data Uniforms
   =  Uniforms
-     {
-       u_time  :: Double
+     { u_time  :: Double
      , u_res   :: (CInt, CInt)
      , u_cam   :: M44 Double
      , u_cam_a :: Double
@@ -171,8 +209,7 @@ data Uniforms
 defaultUniforms :: Uniforms
 defaultUniforms = 
   Uniforms
-  {
-    u_time  = 0.0
+  { u_time  = 0.0
   , u_res   = (800,600)
   , u_cam   = identity :: M44 Double
   , u_cam_a = 50.0
@@ -180,7 +217,53 @@ defaultUniforms =
   , u_cam_ypr   = (\(V3 x y z) -> (x,y,z)) $ ypr  defaultCamController
   , u_cam_yprS  = (\(V3 x y z) -> (x,y,z)) $ yprS defaultCamController
   , u_cam_vel   = (\(V3 x y z) -> (x,y,z)) $ vel  defaultCamController
-  , u_cam_accel = (0,0,0)
+  , u_cam_accel = (0,0,0) }
+
+data Project
+  =  Project
+     {
+       projname   :: String
+     , resx       :: Int
+     , resy       :: Int
+     , camMode    :: String
+     , models     :: [FilePath]
+     , preobjects :: [PreObject]
+     , background :: [PreObject]
+     --, gui        :: PreGUI
+     , cameras    :: [Camera]
+     } deriving Show
+
+project :: Int -> Int -> Project
+project resx' resy' =
+  Project
+  {  
+    projname = "Test Project"
+  , resx    = resx'
+  , resy    = resy'
+  , camMode = "AbsoluteLocation"
+  , models  =
+    [ "src/pighead.gltf"
+    , "src/grid.gltf"
+    ]
+  , preobjects = 
+    [ PreObject
+      {
+        pname          = "test"
+      , ptype          = "default"
+      , pidx           = 0
+      , uuid           = nil
+      , modelIDXs      = [0,1]
+      , presolvers     = []
+      , presolverAttrs = []
+      , solvers        = ["rotate", "translate"]
+      , solverAttrs    = [[0,0,0,0,0,0.01,0,0,0]
+                         ,[0.01,0,0]]
+      , options        = defaultBackendOptions
+      }
+    ]
+  , background = []
+--  , gui        = defaultPreGUI
+  , cameras    = [ defaultCam ]
   }
 
 data Game = Game
@@ -189,7 +272,8 @@ data Game = Game
   , quitGame :: Bool
   , camera   :: Camera
   , uniforms :: Uniforms
-  , drs      :: [Drawable]
+  --, drs      :: [Drawable]
+  , objs     :: [Object]
   } deriving Show
 
 data GameSettings = GameSettings
@@ -205,15 +289,14 @@ initGame =
   , quitGame = False
   , camera   = defaultCam
   , uniforms = defaultUniforms
-  , drs      = []
+  --, drs      = []
+  , objs     = []
   }
 
 initSettings :: GameSettings
 initSettings = GameSettings
-  {
-    resX = 800
-  , resY = 600
-  }
+  { resX = 800
+  , resY = 600 }
 
 type Time = Double
 type Res  = (CInt, CInt)
@@ -247,7 +330,7 @@ toDrawable name' time' res' cam xformO opts txos (d, mat') = dr
       , descriptor = d
       , material   = mat'
       , dtxs       = txos'
-      , options    = opts
+      , doptions   = opts
       }
 
 updateGame :: MSF (MaybeT (ReaderT GameSettings (ReaderT Double (StateT Game IO)))) () Bool
@@ -537,26 +620,32 @@ renderOutput window gs (g,_) = do
   depthFunc $= Just Less
   cullFace  $= Just Back
 
-  mapM_ (\dr -> do
-            bindUniforms g dr
-            let (Descriptor triangles numIndices _) = descriptor dr
-            bindVertexArrayObject $= Just triangles
-            drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
-        ) (drs g) --[head $ reverse $ drs g] --(drs g)
+  mapM_ (renderObject (camera g) (uniforms g)) (objs g)
 
   glSwapWindow window >> return False
 
-type MousePos = (Double, Double)
-
-bindUniforms :: Game -> Drawable -> IO ()
-bindUniforms g dr =
+renderObject :: Camera -> Uniforms -> Object -> IO ()
+renderObject cam unis' obj = do
+  mapM_ (\dr -> do
+            --bindUniforms g dr
+            bindUniforms cam unis' dr
+            let (Descriptor triangles numIndices _) = descriptor dr
+            bindVertexArrayObject $= Just triangles
+            drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
+        ) (drws obj)
+  
+  
+--bindUniforms :: Game -> Drawable -> IO ()
+bindUniforms :: Camera -> Uniforms -> Drawable -> IO ()  
+--bindUniforms g dr =
+bindUniforms cam' unis' dr =  
   do
     let
       u_xform'  = u_xform dr
       d'        = descriptor dr :: Descriptor
-      u_cam'    = (transform.controller.camera) g
+      u_cam'    = (transform.controller) cam'
       u_mouse'  = (0,0)
-      (Uniforms u_time' u_res' _ u_cam_a' u_cam_f' u_ypr' u_yprS' u_vel' u_accel') = uniforms g
+      (Uniforms u_time' u_res' _ u_cam_a' u_cam_f' u_ypr' u_yprS' u_vel' u_accel') = unis'
       (Descriptor _ _ u_prog') = d'
 
     currentProgram $= Just u_prog'
@@ -709,17 +798,20 @@ main = do
           ( unsafeCoerce $ fromIntegral $ resX opts
           , unsafeCoerce $ fromIntegral $ resY opts))
       initSettings
-    models =
-      [ "src/pighead.gltf"
-      , "src/grid.gltf" ]
+    initProject = Main.project resX' resY'
+    models'     = models initProject :: [FilePath]
   
+  -- TODO: if UUIDs are needed, generate like so:
+  -- (const nextRandom) ()
+  -- 10514e78-fa96-444a-8c3d-0a8445e771ad
+
   initializeAll
   window <- openWindow "Mandelbrot + SDL2/OpenGL" (resX', resY')
 
   _ <- setMouseLocationMode RelativeLocation
   _ <- warpMouse (WarpInWindow window) (P (V2 (resX'`div`2) (resY'`div`2)))
   _ <- cursorVisible $= True
-  dms  <- mapM toDescriptorMat models :: IO [[(Descriptor, R.Material)]]
+  dms  <- mapM toDescriptorMat models' :: IO [[(Descriptor, R.Material)]] --
     
   let -- this basically collects all the materials, reads textures from them and uniquely binds
     txs   = concatMap (\(_,m) -> R.textures m) $ concat dms
@@ -731,24 +823,16 @@ main = do
 
   let
     dt   = 0.2 :: Double -- time increment
-    drws =
-      toDrawable
-      ""
-      0.0
-      (resX', resY')
-      (camera initGame)
-      (identity :: M44 Double)
-      defaultBackendOptions
-      txTuples
-      <$> concat dms -- :: [Drawable]
+  objs' <- toObjects initProject txTuples dms
       
   animate
     window
     dt
     initSettings
     initGame
-      { drs      = drws
-      , uniforms = defaultUniforms
+      { --drs      = drws
+        objs      = objs'
+       , uniforms = defaultUniforms
                      { u_res   = (resX', resY')
                      , u_cam_a = apt defaultCam
                      , u_cam_f = foc defaultCam
