@@ -106,7 +106,7 @@ defaultCamController =
       (V4
         (V4 1 0 0 0) -- <- . . . x ...
         (V4 0 1 0 0) -- <- . . . y ...
-        (V4 0 0 1 (-10.0)) -- <- . . . z-component of transform
+        (V4 0 0 1 10) -- <- . . . z-component of transform
         (V4 0 0 0 1))
     , vel  = (V3 0 0 0) -- velocity
     , ypr  = (V3 0 0 0) -- rotation
@@ -152,6 +152,14 @@ data Object
 toObjects :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> IO [Object]
 toObjects prj txTuples dms = mapM (toObject prj txTuples dms) (preobjects prj)
 
+testM44 :: M44 Double  
+testM44 =
+  (V4
+    (V4 1 0 0 0.5) -- <- . . . x ...
+    (V4 0 1 0 0) -- <- . . . y ...
+    (V4 0 0 1 0) -- <- . . . z-component of transform
+    (V4 0 0 0 1))
+  
 toObject :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> PreObject -> IO Object
 toObject proj txTuples' dms' pobj = do
   let
@@ -169,7 +177,8 @@ toObject proj txTuples' dms' pobj = do
       0.0
       (resX, resY)
       (camera initGame)
-      (identity :: M44 Double)
+      --(identity :: M44 Double)
+      testM44
       defaultBackendOptions
       txTuples
       <$> concat dms
@@ -627,7 +636,6 @@ renderOutput window gs (g,_) = do
 renderObject :: Camera -> Uniforms -> Object -> IO ()
 renderObject cam unis' obj = do
   mapM_ (\dr -> do
-            --bindUniforms g dr
             bindUniforms cam unis' dr
             let (Descriptor triangles numIndices _) = descriptor dr
             bindVertexArrayObject $= Just triangles
@@ -635,9 +643,7 @@ renderObject cam unis' obj = do
         ) (drws obj)
   
   
---bindUniforms :: Game -> Drawable -> IO ()
 bindUniforms :: Camera -> Uniforms -> Drawable -> IO ()  
---bindUniforms g dr =
 bindUniforms cam' unis' dr =  
   do
     let
@@ -680,7 +686,7 @@ bindUniforms cam' unis' dr =
     location4         <- SV.get (uniformLocation u_prog' "camera")
     uniform location4 $= camera
 
-    xform             <- GL.newMatrix RowMajor $ toList' (xform' u_xform' u_cam') :: IO (GLmatrix GLfloat)
+    xform             <- GL.newMatrix RowMajor $ toList' (xformComp u_xform' u_cam') :: IO (GLmatrix GLfloat)
     location5         <- SV.get (uniformLocation u_prog' "xform")
     uniform location5 $= xform
 
@@ -750,11 +756,11 @@ bindUniforms cam' unis' dr =
     bindBuffer ElementArrayBuffer $= Nothing
       where        
         toList' = fmap realToFrac.concat.(fmap DF.toList.DF.toList) :: V4 (V4 Double) -> [GLfloat]
-        xform' u_xform' u_cam'= --- | = Object Position - Camera Position
+        xformComp u_xform' u_cam'= --- | = Object Position - Camera Position
           transpose $
           fromV3M44
           ( u_xform' ^._xyz )
-          ( fromV3V4 (transpose u_xform' ^._w._xyz + transpose u_cam' ^._w._xyz) 1.0 ) :: M44 Double
+          ( fromV3V4 (transpose u_xform' ^._w._xyz - transpose u_cam' ^._w._xyz) 1.0 ) :: M44 Double
           
 allocateTextures :: Program -> (Int, (Texture, TextureObject)) -> IO ()
 allocateTextures program0 (txid, (tx, txo)) =

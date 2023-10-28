@@ -7,7 +7,7 @@ layout(location = 2) in vec2 uvCoords;
 uniform float u_time;
 uniform mat4 camera;
 uniform mat4 persp;
-//uniform mat4 xform;
+uniform mat4 xform;
 
 // Output data ; will be interpolated for each fragment.
 out vec4 rgba;
@@ -27,12 +27,12 @@ mat4 rotateY(float angle) {
     );
 }
 
-mat4 xform =
-	mat4(
-		vec4(1,0,0,0),
-		vec4(0,1,0,0),
-		vec4(0,0,1,0),
-		vec4(0,0,0,1)); 
+// mat4 xform =
+// 	mat4(
+// 		vec4(1,0,0,0),
+// 		vec4(0,1,0,0),
+// 		vec4(0,0,1,0),
+// 		vec4(0,0,0,1)); 
 
 void main()
 {
@@ -42,17 +42,17 @@ void main()
 	// 		, camera[1].xyz
 	// 		, camera[2].xyz );
 
-	// mat4 cameraRot =
-	// 	mat4 ( camera[0]
-	// 		 , camera[1]
-	// 		 , camera[2]
-	// 		 , vec4(0,0,0,1));
-
 	mat4 cameraRot =
-		mat4 ( inverse(camera)[0] 
-			 , inverse(camera)[1] 
-			 , inverse(camera)[2] 
-			 , camera[3]);
+		mat4 ( camera[0]
+			 , camera[1]
+			 , camera[2]
+			 , vec4(0,0,0,1));
+
+	// mat4 cameraRot =
+	// 	mat4 ( inverse(camera)[0] 
+	// 		 , inverse(camera)[1] 
+	// 		 , inverse(camera)[2] 
+	// 		 , camera[3]);
 
 	// mat3 perspRot =
 	// 	mat3 ( persp[0].xyz
@@ -67,8 +67,9 @@ void main()
 	vec4 position = vec4(vPosition,1.0);	
 
 	gl_Position
-		= (persp)
-		* (cameraRot)
+		= persp
+		* cameraRot
+		* xform
 		* position;
 	
 // Logarithmic correction.  The idea is to blend linear coordinates with
