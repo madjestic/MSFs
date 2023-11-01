@@ -104,8 +104,8 @@ defaultCamController =
     { debug = (0,0)
     , transform =  
       (V4
-        (V4 1 0 0 0) -- <- . . . x ...
-        (V4 0 1 0 0) -- <- . . . y ...
+        (V4 1 0 0 0)  -- <- . . . x ...
+        (V4 0 1 0 0)  -- <- . . . y ...
         (V4 0 0 1 10) -- <- . . . z-component of transform
         (V4 0 0 0 1))
     , vel  = (V3 0 0 0) -- velocity
@@ -137,17 +137,43 @@ data PreObject
      , modelIDXs      :: [Int]
      , presolvers     :: [String]
      , presolverAttrs :: [[Double]]
-     , solvers        :: [String]
-     , solverAttrs    :: [[Double]]
+     , solvers        :: [Solver]
      , options        :: BackendOptions     
      } deriving Show
 
 data Object
   =  Object
-     { xform    :: M44 Double
+     { xform0   :: M44 Double
+     , xform    :: M44 Double
      , drws     :: [Drawable]
-     , slvr     :: Solver
+     , slvrs    :: [Solver]
      } deriving Show
+
+solve :: Object -> Solver -> Object
+solve obj slv =
+  case slv of
+    Identity -> obj
+    Translate cs pos vel ->
+      case cs of
+        WorldSpace  ->
+          obj
+          { xform0 = pretranslate (xform0 obj) pos
+          , xform  = translate    (xform obj)  vel }
+          where
+            pretranslate :: M44 Double -> V3 Double -> M44 Double
+            pretranslate mtx0 pos = mtx0 & translation .~ pos
+            translate :: M44 Double -> V3 Double -> M44 Double
+            translate mtx0 vel0 = mtx
+              where
+                mtx =
+                  mkTransformationMat
+                  rot
+                  tr
+                  where
+                    rot = mtx0^._m33
+                    tr  = mtx0^.translation + vel
+        ObjectSpace -> undefined
+    _ -> error $ "solver " ++ show slv ++ " is not found"
 
 toObjects :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> IO [Object]
 toObjects prj txTuples dms = mapM (toObject prj txTuples dms) (preobjects prj)
@@ -156,8 +182,8 @@ testM44 :: M44 Double
 testM44 =
   (V4
     (V4 1 0 0 0.5) -- <- . . . x ...
-    (V4 0 1 0 0) -- <- . . . y ...
-    (V4 0 0 1 0) -- <- . . . z-component of transform
+    (V4 0 1 0 0)   -- <- . . . y ...
+    (V4 0 0 1 0)   -- <- . . . z-component of transform
     (V4 0 0 0 1))
   
 toObject :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> PreObject -> IO Object
@@ -177,19 +203,19 @@ toObject proj txTuples' dms' pobj = do
       0.0
       (resX, resY)
       (camera initGame)
-      --(identity :: M44 Double)
-      testM44
+      --testM44
+      (identity :: M44 Double) -- TODO: add result based on solvers composition
       defaultBackendOptions
       txTuples
       <$> concat dms
       :: [Drawable]
 
-    mtx = identity :: M44 Double
     obj =
       Object
-      { xform = mtx
-      , drws  = drs
-      , slvr  = Identity }
+      { xform0 = identity :: M44 Double
+      , xform  = identity :: M44 Double
+      , drws   = drs
+      , slvrs  = solvers pobj }
 
   return obj
 
@@ -264,14 +290,11 @@ project resx' resy' =
       , modelIDXs      = [0,1]
       , presolvers     = []
       , presolverAttrs = []
-      , solvers        = ["rotate", "translate"]
-      , solverAttrs    = [[0,0,0,0,0,0.01,0,0,0]
-                         ,[0.01,0,0]]
+      , solvers        = [Identity]
       , options        = defaultBackendOptions
       }
     ]
   , background = []
---  , gui        = defaultPreGUI
   , cameras    = [ defaultCam ]
   }
 
@@ -281,7 +304,6 @@ data Game = Game
   , quitGame :: Bool
   , camera   :: Camera
   , uniforms :: Uniforms
-  --, drs      :: [Drawable]
   , objs     :: [Object]
   } deriving Show
 
@@ -325,7 +347,7 @@ toDrawable
   -> [(Texture, TextureObject)]
   -> (Descriptor, R.Material)
   -> Drawable
-toDrawable name' time' res' cam xformO opts txos (d, mat') = dr
+toDrawable name' time' res' cam xform' opts txos (d, mat') = dr
   where
     apt'   = apt cam
     foc'   = foc cam
@@ -335,7 +357,7 @@ toDrawable name' time' res' cam xformO opts txos (d, mat') = dr
     dr =
       Drawable
       { 
-        u_xform    = xformO
+        u_xform    = xform'
       , descriptor = d
       , material   = mat'
       , dtxs       = txos'
@@ -345,23 +367,30 @@ toDrawable name' time' res' cam xformO opts txos (d, mat') = dr
 updateGame :: MSF (MaybeT (ReaderT GameSettings (ReaderT Double (StateT Game IO)))) () Bool
 updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
   where
-    gameLoop = arrM (\_ -> (lift . lift . lift) gameLoop')
+    gameLoop = arrM (\_ -> (lift . lift) gameLoop')
     gameQuit = arrM (\_ -> (lift . lift . lift) gameQuit')
 
     gameQuit' :: StateT Game IO Bool
     gameQuit' = TMSF.get >>= \s -> return $ quitGame s
 
-    gameLoop' :: StateT Game IO Bool
+    gameLoop' :: ReaderT Double (StateT Game IO) Bool
     gameLoop' = do
+      TMSF.ask >>= \r ->  liftIO $ delay $ fromIntegral(double2Int $ r * 10)
+      lift gameLoop''
+
+    gameLoop'' :: StateT Game IO Bool
+    gameLoop'' = do
 
       -- print/debug state:
       -- TMSF.get >>= \s -> liftIO $ print $ (transform . controller . camera) s
-      
+
       handleEvents
+      --updateObjects
         where
+          updateObjects :: StateT Game IO Bool
+          updateObjects = undefined
           handleEvents :: StateT Game IO Bool
           handleEvents = do
-            liftIO $ delay 10
             events <- SDL.pollEvents
             updateKeyboard mapKeyEvents events
             updateMouse events
@@ -636,7 +665,8 @@ renderOutput window gs (g,_) = do
 renderObject :: Camera -> Uniforms -> Object -> IO ()
 renderObject cam unis' obj = do
   mapM_ (\dr -> do
-            bindUniforms cam unis' dr
+            -- pass object's transform and prestransform matrix composition to Drawable            
+            bindUniforms cam unis' dr {u_xform = (xform0 obj) !*! (xform obj)} 
             let (Descriptor triangles numIndices _) = descriptor dr
             bindVertexArrayObject $= Just triangles
             drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
@@ -647,7 +677,7 @@ bindUniforms :: Camera -> Uniforms -> Drawable -> IO ()
 bindUniforms cam' unis' dr =  
   do
     let
-      u_xform'  = u_xform dr
+      u_xform'  = u_xform  dr
       d'        = descriptor dr :: Descriptor
       u_cam'    = (transform.controller) cam'
       u_mouse'  = (0,0)
@@ -689,10 +719,6 @@ bindUniforms cam' unis' dr =
     xform             <- GL.newMatrix RowMajor $ toList' (xformComp u_xform' u_cam') :: IO (GLmatrix GLfloat)
     location5         <- SV.get (uniformLocation u_prog' "xform")
     uniform location5 $= xform
-
-    xform1            <- GL.newMatrix RowMajor $ toList' u_xform' :: IO (GLmatrix GLfloat)
-    location6         <- SV.get (uniformLocation u_prog' "xform1")
-    uniform location6 $= xform1
 
     let sunP = GL.Vector3 299999999999.0 0.0 0.0 :: GL.Vector3 GLfloat
     location7 <- SV.get (uniformLocation u_prog' "sunP")
@@ -756,7 +782,10 @@ bindUniforms cam' unis' dr =
     bindBuffer ElementArrayBuffer $= Nothing
       where        
         toList' = fmap realToFrac.concat.(fmap DF.toList.DF.toList) :: V4 (V4 Double) -> [GLfloat]
-        xformComp u_xform' u_cam'= --- | = Object Position - Camera Position
+        -- | Compensate world space xform with camera position
+        -- = Object Position - Camera Position
+        xformComp :: M44 Double -> M44 Double -> M44 Double
+        xformComp u_xform' u_cam'= 
           transpose $
           fromV3M44
           ( u_xform' ^._xyz )
@@ -832,7 +861,7 @@ main = do
 
   animate
     window
-    (0.2 :: Double) -- time increment
+    (0.1 :: Double) -- time increment
     initSettings
     initGame
       { 
