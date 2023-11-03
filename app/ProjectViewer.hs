@@ -149,32 +149,6 @@ data Object
      , slvrs    :: [Solver]
      } deriving Show
 
-solve :: Object -> Solver -> Object
-solve obj slv =
-  case slv of
-    Identity -> obj
-    Translate cs pos vel ->
-      case cs of
-        WorldSpace  ->
-          obj
-          { xform0 = pretranslate (xform0 obj) pos
-          , xform  = translate    (xform obj)  vel }
-          where
-            pretranslate :: M44 Double -> V3 Double -> M44 Double
-            pretranslate mtx0 pos = mtx0 & translation .~ pos
-            translate :: M44 Double -> V3 Double -> M44 Double
-            translate mtx0 vel0 = mtx
-              where
-                mtx =
-                  mkTransformationMat
-                  rot
-                  tr
-                  where
-                    rot = mtx0^._m33
-                    tr  = mtx0^.translation + vel
-        ObjectSpace -> undefined
-    _ -> error $ "solver " ++ show slv ++ " is not found"
-
 toObjects :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> IO [Object]
 toObjects prj txTuples dms = mapM (toObject prj txTuples dms) (preobjects prj)
 
@@ -290,8 +264,14 @@ project resx' resy' =
       , modelIDXs      = [0,1]
       , presolvers     = []
       , presolverAttrs = []
-      , solvers        = [Identity]
-      , options        = defaultBackendOptions
+      --, solvers        = [Identity]
+      , solvers        = [ Identity
+                         , Translate
+                           { space = WorldSpace
+                           , txyz  = V3 1.0 0 0
+                           , tvel  = V3 0 0.01 0 }
+                         ]
+        , options        = defaultBackendOptions
       }
     ]
   , background = []
@@ -367,28 +347,69 @@ toDrawable name' time' res' cam xform' opts txos (d, mat') = dr
 updateGame :: MSF (MaybeT (ReaderT GameSettings (ReaderT Double (StateT Game IO)))) () Bool
 updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
   where
-    gameLoop = arrM (\_ -> (lift . lift) gameLoop')
+    gameLoop = arrM (\_ -> (lift . lift) gameLoopDelay)
     gameQuit = arrM (\_ -> (lift . lift . lift) gameQuit')
 
     gameQuit' :: StateT Game IO Bool
     gameQuit' = TMSF.get >>= \s -> return $ quitGame s
 
-    gameLoop' :: ReaderT Double (StateT Game IO) Bool
-    gameLoop' = do
+    gameLoopDelay :: ReaderT Double (StateT Game IO) Bool
+    gameLoopDelay = do
       TMSF.ask >>= \r ->  liftIO $ delay $ fromIntegral(double2Int $ r * 10)
-      lift gameLoop''
+      lift gameLoop'
 
-    gameLoop'' :: StateT Game IO Bool
-    gameLoop'' = do
+    gameLoop' :: StateT Game IO Bool
+    gameLoop' = do
 
-      -- print/debug state:
-      -- TMSF.get >>= \s -> liftIO $ print $ (transform . controller . camera) s
-
+      updateObjects
+      updateGUI
       handleEvents
-      --updateObjects
         where
-          updateObjects :: StateT Game IO Bool
-          updateObjects = undefined
+          updateObjects :: StateT Game IO ()
+          updateObjects = do
+            modify solveObjs
+            return ()
+              where
+                solveObjs :: Game -> Game
+                solveObjs g0 =
+                  g0 { objs = (\obj -> foldr1 (!@!) $ solve obj <$> slvrs obj ) <$> objs g0}
+                    where
+                      (!@!) :: Object -> Object -> Object
+                      (!@!) obj0 obj1 =
+                        obj0
+                        {
+                          xform0 = xform0 obj1
+                        , xform  = xform  obj1 !*! xform  obj0 }
+                       
+                      solve :: Object -> Solver -> Object
+                      solve obj slv =
+                        case slv of
+                          Identity -> obj
+                          Translate cs pos vel ->
+                            case cs of
+                              WorldSpace  ->
+                                obj
+                                { xform0 = pretranslate (xform0 obj) pos
+                                , xform  = translate    (xform0  obj) vel }
+                                where
+                                  pretranslate :: M44 Double -> V3 Double -> M44 Double
+                                  pretranslate mtx0 pos = mtx0 & translation .~ pos
+                                  translate :: M44 Double -> V3 Double -> M44 Double
+                                  translate mtx0 vel0 = mtx
+                                    where
+                                      mtx =
+                                        mkTransformationMat
+                                        rot
+                                        tr
+                                        where
+                                          rot = mtx0^._m33
+                                          tr  = (identity::M44 Double)^.translation + vel
+                              ObjectSpace -> undefined
+                          _ -> error $ "solver " ++ show slv ++ " is not found"
+
+          updateGUI :: StateT Game IO ()
+          updateGUI = undefined
+
           handleEvents :: StateT Game IO Bool
           handleEvents = do
             events <- SDL.pollEvents
@@ -471,7 +492,7 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                     quit b = modify $ quit' b
                       where
                         quit' :: Bool -> Game -> Game
-                        quit' b gameLoop' = gameLoop' { quitGame = b }
+                        quit' b gameLoopDelay = gameLoopDelay { quitGame = b }
 
                 updateMouse  :: [Event] -> StateT Game IO ()
                 updateMouse = mapM_ processEvent 
@@ -511,6 +532,7 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                               !*! fromQuaternion (axisAngle (mtx0^.(_m33._x)) (mouseS cam^._x * (fromIntegral $ pos^._y))) -- pitch
                                               !*! fromQuaternion (axisAngle (mtx0^.(_m33._y)) (mouseS cam^._x * (fromIntegral $ pos^._x))) -- yaw
 
+         
   
 -- < Rendering > ----------------------------------------------------------
 openWindow :: Text -> (CInt, CInt) -> IO SDL.Window
@@ -705,8 +727,8 @@ bindUniforms cam' unis' dr =
         proj =
           LP.infinitePerspective
           (2.0 * atan ( apt/foc/2.0 )) -- FOV
-          (resX/resY)                    -- Aspect
-          0.01                           -- Near
+          (resX/resY)                  -- Aspect
+          0.01                         -- Near
 
     persp             <- GL.newMatrix RowMajor $ toList' proj   :: IO (GLmatrix GLfloat)
     location3         <- SV.get (uniformLocation u_prog' "persp")
