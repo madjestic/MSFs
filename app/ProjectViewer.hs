@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Main where
 
 import           SDL hiding (Texture)
@@ -45,6 +46,7 @@ import Linear.Projection         as LP        (infinitePerspective)
 import Linear.Matrix
 import Data.Maybe (fromMaybe)
 import Data.Set as DS ( fromList, toList )
+import GHC.Generics
 
 import Load_glTF (loadMeshPrimitives)
 import Model_glTF
@@ -236,14 +238,14 @@ data Project
      , resy       :: Int
      , camMode    :: String
      , models     :: [FilePath]
+     , fontModels :: [FilePath]
      , preobjects :: [PreObject]
      , background :: [PreObject]
-     --, gui        :: PreGUI
      , cameras    :: [Camera]
      } deriving Show
 
-project :: Int -> Int -> Project
-project resx' resy' =
+initProject :: Int -> Int -> Project
+initProject resx' resy' =
   Project
   {  
     projname = "Test Project"
@@ -253,6 +255,15 @@ project resx' resy' =
   , models  =
     [ "src/pighead.gltf"
     , "src/grid.gltf"
+    ]
+    -- [ "src/fnt_0.gltf"
+    -- , "src/fnt_1.gltf"
+    -- ]
+    
+    , fontModels =
+    [ "src/fnt_0.gltf"
+    , "src/fnt_1.gltf"
+    , "src/fnt_2.gltf"
     ]
   , preobjects = 
     [ PreObject
@@ -264,10 +275,9 @@ project resx' resy' =
       , modelIDXs      = [0,1]
       , presolvers     = []
       , presolverAttrs = []
-      --, solvers        = [Identity]
       , solvers        = [ Identity
                          , Translate
-                           { space = WorldSpace
+                          { space = WorldSpace
                            , txyz  = V3 1.0 0 0
                            , tvel  = V3 0 0.01 0 }
                          ]
@@ -278,6 +288,41 @@ project resx' resy' =
   , cameras    = [ defaultCam ]
   }
 
+data Alignment =
+   TL |TC |TR
+  |CL |CC |CR
+  |BL |BC |BR
+  deriving (Generic, Show)
+
+
+data Format -- move to Format.hs?
+  =  Format
+     { alignment :: Alignment
+     , xres      :: Int
+     , yres      :: Int
+     , xoffset   :: Double
+     , yoffset   :: Double
+     , zoffset   :: Double
+     , soffset   :: Double -- scale Offset
+     , ssize     :: Double -- scale Size
+     } deriving (Generic, Show)
+
+data Widget
+  =  Empty
+  |  TextBox
+     { active   :: Bool
+     , text     :: [String]
+     , fonts    :: [Object]
+     , format   :: Format
+     , optionsW :: BackendOptions
+     }
+  |  Cursor
+     { active   :: Bool
+     , fonts    :: [Object]     
+     , cpos     :: Point V2 CInt
+     , optionsW :: BackendOptions
+     } deriving (Generic, Show)
+
 data Game = Game
   { tick     :: Integer
   , mpos     :: Point V2 CInt
@@ -285,6 +330,7 @@ data Game = Game
   , camera   :: Camera
   , uniforms :: Uniforms
   , objs     :: [Object]
+  , gui      :: [Widget]
   } deriving Show
 
 data GameSettings = GameSettings
@@ -300,8 +346,8 @@ initGame =
   , quitGame = False
   , camera   = defaultCam
   , uniforms = defaultUniforms
-  --, drs      = []
   , objs     = []
+  , gui      = []
   }
 
 initSettings :: GameSettings
@@ -362,7 +408,7 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
     gameLoop' = do
 
       updateObjects
-      updateGUI
+      --updateGUI
       handleEvents
         where
           updateObjects :: StateT Game IO ()
@@ -407,8 +453,8 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                               ObjectSpace -> undefined
                           _ -> error $ "solver " ++ show slv ++ " is not found"
 
-          updateGUI :: StateT Game IO ()
-          updateGUI = undefined
+          --updateGUI :: StateT Game IO ()
+          --updateGUI = undefined
 
           handleEvents :: StateT Game IO Bool
           handleEvents = do
@@ -583,6 +629,7 @@ toUV Planar =
 
 toDescriptorMat :: FilePath -> IO [(Descriptor, R.Material)]
 toDescriptorMat file = do
+  putStrLn file
   (stuff, mats) <- loadGltf file -- "src/pighead.gltf"
   mats' <- mapM fromGltfMaterial mats
   ds    <- mapM (\((vs, idx), mat) -> initResources idx vs mat 0) $ zip (concat stuff) mats'
@@ -681,8 +728,44 @@ renderOutput window gs (g,_) = do
   cullFace  $= Just Back
 
   mapM_ (renderObject (camera g) (uniforms g)) (objs g)
+  mapM_ (renderWidget (camera g) (uniforms g)) (gui  g)
 
   glSwapWindow window >> return False
+
+renderWidget :: Camera -> Uniforms -> Widget -> IO ()
+renderWidget cam unis' wgt = case wgt of
+  Empty                   -> do return ()
+  Cursor  False _ _ _     -> do return ()
+  Cursor  _ fnts cpos opts ->
+    mapM_
+    (\dr -> do
+        bindUniforms cam unis' (formatDrw (format wgt) dr) 
+        let (Descriptor triangles numIndices _) = descriptor dr
+        bindVertexArrayObject $= Just triangles
+        drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
+        ) wdrs
+  TextBox False _ _ _ _   -> do return ()
+  TextBox _ s fnts fmt opts -> 
+    mapM_
+    (\dr -> do
+        bindUniforms cam unis' dr 
+        let (Descriptor triangles numIndices _) = descriptor dr
+        bindVertexArrayObject $= Just triangles
+        drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
+        ) wdrs
+  _ ->
+    mapM_
+    (\dr -> do
+        bindUniforms cam unis' dr 
+        let (Descriptor triangles numIndices _) = descriptor dr
+        bindVertexArrayObject $= Just triangles
+        drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
+        ) wdrs
+  where
+    wdrs = concatMap drws (fonts wgt)
+
+formatDrw :: Format -> Drawable -> Drawable
+formatDrw fmt dr = dr
 
 renderObject :: Camera -> Uniforms -> Object -> IO ()
 renderObject cam unis' obj = do
@@ -855,8 +938,9 @@ main = do
           ( unsafeCoerce $ fromIntegral $ resX opts
           , unsafeCoerce $ fromIntegral $ resY opts))
       initSettings
-    initProject = Main.project resX' resY'
-    models'     = models initProject :: [FilePath]
+    initProject'= Main.initProject resX' resY'
+    models'     = models initProject'     :: [FilePath]
+    fonts'      = fontModels initProject' :: [FilePath]
   
   -- TODO: if UUIDs are needed, generate like so:
   -- (const nextRandom) ()
@@ -870,16 +954,23 @@ main = do
   _ <- cursorVisible $= True
   
   putStrLn "Compiling Materials"
-  dms  <- mapM toDescriptorMat models' :: IO [[(Descriptor, R.Material)]] --
+  dms  <- mapM toDescriptorMat models' :: IO [[(Descriptor, R.Material)]]
+  fdms <- mapM toDescriptorMat fonts'  :: IO [[(Descriptor, R.Material)]] --
     
   let -- this basically collects all the materials, reads textures from them and uniquely binds
     txs   = concatMap (\(_,m) -> R.textures m) $ concat dms
     uuids = fmap T.uuid txs
     txord = DS.toList . DS.fromList $ zip uuids [0..] -- this guarantees unique texture (uuid) bindings
+
+    ftxs   = concatMap (\(_,m) -> R.textures m) $ concat dms
+    fuuids = fmap T.uuid ftxs
+    ftxord = DS.toList . DS.fromList $ zip fuuids [0..] -- this guarantees unique texture (uuid) bindings
         
   putStrLn "Binding Textures..."
-  txTuples <- mapM (bindTexture' txord) txs :: IO [(Texture, TextureObject)]
-  objs'    <- toObjects initProject txTuples dms
+  txTuples  <- mapM (bindTexture'  txord) txs  :: IO [(Texture, TextureObject)]
+  ftxTuples <- mapM (bindTexture' ftxord) ftxs :: IO [(Texture, TextureObject)]
+  objs'    <- toObjects initProject' txTuples  dms
+  fobjs'   <- toObjects initProject' ftxTuples fdms
 
   animate
     window
@@ -888,11 +979,20 @@ main = do
     initGame
       { 
         objs      = objs'
-       , uniforms = defaultUniforms
-                     { u_res   = (resX', resY')
-                     , u_cam_a = apt defaultCam
-                     , u_cam_f = foc defaultCam
-                     }
+      , uniforms =
+          defaultUniforms
+          { u_res   = (resX', resY')
+          , u_cam_a = apt defaultCam
+          , u_cam_f = foc defaultCam
+          }
+      , gui =
+        [ Cursor
+          { active = True
+          , fonts  = fobjs'
+          , cpos   = P (V2 0 0)
+          , optionsW = defaultBackendOptions
+          }
+        ]
       }
     updateGame
   
