@@ -131,8 +131,17 @@ data Solver =
 
 data PreObject
   =  PreObject
-     {
-       pname          :: String
+     { pname          :: String
+     , ptype          :: String
+     , pidx           :: Integer
+     , uuid           :: UUID
+     , modelIDXs      :: [Int]
+     , presolvers     :: [String]
+     , presolverAttrs :: [[Double]]
+     , solvers        :: [Solver]
+     , options        :: BackendOptions }
+  |  PreFontObject
+     { pname          :: String
      , ptype          :: String
      , pidx           :: Integer
      , uuid           :: UUID
@@ -152,7 +161,10 @@ data Object
      } deriving Show
 
 toObjects :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> IO [Object]
-toObjects prj txTuples dms = mapM (toObject prj txTuples dms) (preobjects prj)
+toObjects prj txTuples dms = mapM (toObject prj txTuples dms) (preObjects prj)
+
+toFontObjects :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> IO [Object]
+toFontObjects prj txTuples dms = mapM (toObject prj txTuples dms) (preFontObject prj)
 
 testM44 :: M44 Double  
 testM44 =
@@ -165,7 +177,9 @@ testM44 =
 toObject :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> PreObject -> IO Object
 toObject proj txTuples' dms' pobj = do
   let
-    models' = (\idx -> models proj!!idx) <$> modelIDXs pobj
+    models' = case pobj of
+      PreObject {}     -> (\idx -> models     proj!!idx) <$> modelIDXs pobj
+      PreFontObject {} -> (\idx -> fontModels proj!!idx) <$> modelIDXs pobj
     dms     = (dms'!!) <$> modelIDXs pobj
   
   let
@@ -233,15 +247,15 @@ defaultUniforms =
 data Project
   =  Project
      {
-       projname   :: String
-     , resx       :: Int
-     , resy       :: Int
-     , camMode    :: String
-     , models     :: [FilePath]
-     , fontModels :: [FilePath]
-     , preobjects :: [PreObject]
-     , background :: [PreObject]
-     , cameras    :: [Camera]
+       projname       :: String
+     , resx           :: Int
+     , resy           :: Int
+     , camMode        :: String
+     , models         :: [FilePath]
+     , fontModels     :: [FilePath]
+     , preObjects     :: [PreObject]
+     , preFontObject :: [PreObject]
+     , cameras        :: [Camera]
      } deriving Show
 
 initProject :: Int -> Int -> Project
@@ -256,15 +270,16 @@ initProject resx' resy' =
     [ "src/pighead.gltf"
     , "src/grid.gltf"
     ]
-    , fontModels =
+  , fontModels =
     [ "src/fnt_0.gltf"
     , "src/fnt_1.gltf"
     , "src/fnt_2.gltf"
+    , "src/fnt_crosshair.gltf"
     ]
-  , preobjects = 
+  , preObjects = 
     [ PreObject
       {
-        pname          = "test"
+        pname          = "test_object"
       , ptype          = "default"
       , pidx           = 0
       , uuid           = nil
@@ -280,7 +295,25 @@ initProject resx' resy' =
         , options        = defaultBackendOptions
       }
     ]
-  , background = []
+  , preFontObject =
+    [ PreFontObject
+      {
+        pname          = "fonts"
+      , ptype          = "default"
+      , pidx           = 0
+      , uuid           = nil
+      , modelIDXs      = [0,1,2,3]
+      , presolvers     = []
+      , presolverAttrs = []
+      , solvers        = [ Identity
+                         , Translate
+                          { space = WorldSpace
+                           , txyz  = V3 1.0 0 0
+                           , tvel  = V3 0 0.01 0 }
+                         ]
+        , options        = defaultBackendOptions
+      }
+    ]
   , cameras    = [ defaultCam ]
   }
 
@@ -733,13 +766,13 @@ renderWidget cam unis' wgt = case wgt of
   Empty                   -> do return ()
   Cursor  False _ _ _     -> do return ()
   Cursor  _ fnts cpos opts ->
-    mapM_
+    --mapM_
     (\dr -> do
         bindUniforms cam unis' (formatDrw (format wgt) dr) 
         let (Descriptor triangles numIndices _) = descriptor dr
         bindVertexArrayObject $= Just triangles
         drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
-        ) wdrs
+        ) (wdrs!!3)
   TextBox False _ _ _ _   -> do return ()
   TextBox _ s fnts fmt opts -> 
     mapM_
@@ -935,8 +968,9 @@ main = do
           , unsafeCoerce $ fromIntegral $ resY opts))
       initSettings
     initProject'= Main.initProject resX' resY'
-    models'     = models initProject'     :: [FilePath]
+    models'     = models     initProject' :: [FilePath]
     fonts'      = fontModels initProject' :: [FilePath]
+  print $ "fonts' length : " ++ show (length fonts')
   
   -- TODO: if UUIDs are needed, generate like so:
   -- (const nextRandom) ()
@@ -952,6 +986,7 @@ main = do
   putStrLn "Compiling Materials"
   dms  <- mapM toDescriptorMat models' :: IO [[(Descriptor, R.Material)]]
   fdms <- mapM toDescriptorMat fonts'  :: IO [[(Descriptor, R.Material)]] --
+  print $ "fdms length : " ++ show (length fdms)
     
   let -- this basically collects all the materials, reads textures from them and uniquely binds
     txs   = concatMap (\(_,m) -> R.textures m) $ concat dms
@@ -965,8 +1000,10 @@ main = do
   putStrLn "Binding Textures..."
   txTuples  <- mapM (bindTexture'  txord) txs  :: IO [(Texture, TextureObject)]
   ftxTuples <- mapM (bindTexture' ftxord) ftxs :: IO [(Texture, TextureObject)]
-  objs'    <- toObjects initProject' txTuples  dms
-  fobjs'   <- toObjects initProject' ftxTuples fdms
+  print $ "ftxTuples length : " ++ show (length ftxTuples)
+  objs'    <- toObjects     initProject' txTuples  dms
+  fobjs'   <- toFontObjects initProject' ftxTuples fdms
+  print $ "fobjs' length : " ++ show (length fobjs')
 
   animate
     window
