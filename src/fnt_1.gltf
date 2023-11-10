@@ -19,9 +19,9 @@
 			"componentType":5126,
 			"count":4,
 			"type":"VEC3",
-			"min":[-0.0247000009,-0.00869999919,0.5
+			"min":[-0.0247000009,-0.00869999919,0
 			],
-			"max":[0.0251000021,0.076700002,0.5
+			"max":[0.0251000021,0.076700002,0
 			]
 		},
 		{
@@ -49,9 +49,9 @@
 			"componentType":5126,
 			"count":4,
 			"type":"VEC2",
-			"min":[0.166799992,1.02011669
+			"min":[0.166799992,0.0201166868
 			],
-			"max":[0.216600001,1.06281674
+			"max":[0.216600001,0.0628166795
 			]
 		},
 		{
@@ -152,7 +152,7 @@
 	],
 	"materials":[
 		{
-			"name":"checkerboard",
+			"name":"fontbmpext",
 			"pbrMetallicRoughness":{
 				"baseColorFactor":[0.200000003,0.200000003,0.200000003,1
 				],
@@ -160,6 +160,9 @@
 				"roughnessFactor":0.300000012,
 				"baseColorTexture":{
 					"index":0
+				},
+				"metallicRoughnessTexture":{
+					"index":1
 				}
 			}
 		}
@@ -173,11 +176,18 @@
 	"textures":[
 		{
 			"source":0
+		},
+		{
+			"source":1
 		}
 	],
 	"images":[
 		{
-			"uri":"checkerboard.png",
+			"uri":"FONTS.png",
+			"mimeType":"image/png"
+		},
+		{
+			"uri":"testgeometry_pighead_lowresspec.png",
 			"mimeType":"image/png"
 		}
 	],

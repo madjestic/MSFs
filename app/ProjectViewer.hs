@@ -256,10 +256,6 @@ initProject resx' resy' =
     [ "src/pighead.gltf"
     , "src/grid.gltf"
     ]
-    -- [ "src/fnt_0.gltf"
-    -- , "src/fnt_1.gltf"
-    -- ]
-    
     , fontModels =
     [ "src/fnt_0.gltf"
     , "src/fnt_1.gltf"
@@ -629,9 +625,9 @@ toUV Planar =
 
 toDescriptorMat :: FilePath -> IO [(Descriptor, R.Material)]
 toDescriptorMat file = do
-  putStrLn file
   (stuff, mats) <- loadGltf file -- "src/pighead.gltf"
   mats' <- mapM fromGltfMaterial mats
+  print mats'
   ds    <- mapM (\((vs, idx), mat) -> initResources idx vs mat 0) $ zip (concat stuff) mats'
   return $ zip ds mats'
     where
@@ -718,7 +714,7 @@ renderOutput window gs (g,_) = do
     timer = 0.01 * (fromIntegral $ tick g)
     --ds'   = descriptor <$> drs g :: [Descriptor]
 
-  clearColor $= Color4 timer 0.0 0.0 1.0
+  clearColor $= Color4 0.0 0.0 0.0 1.0
   GL.clear [ColorBuffer, DepthBuffer]
 
   GL.pointSize $= 10.0
@@ -962,7 +958,7 @@ main = do
     uuids = fmap T.uuid txs
     txord = DS.toList . DS.fromList $ zip uuids [0..] -- this guarantees unique texture (uuid) bindings
 
-    ftxs   = concatMap (\(_,m) -> R.textures m) $ concat dms
+    ftxs   = concatMap (\(_,m) -> R.textures m) $ concat fdms
     fuuids = fmap T.uuid ftxs
     ftxord = DS.toList . DS.fromList $ zip fuuids [0..] -- this guarantees unique texture (uuid) bindings
         

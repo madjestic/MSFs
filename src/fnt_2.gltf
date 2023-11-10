@@ -19,9 +19,9 @@
 			"componentType":5126,
 			"count":4,
 			"type":"VEC3",
-			"min":[-0.0287999995,-0.00660000229,0.5
+			"min":[-0.0287999995,-0.00660000229,0
 			],
-			"max":[0.0233000014,0.0763000026,0.5
+			"max":[0.0233000014,0.0763000026,0
 			]
 		},
 		{
@@ -39,9 +39,9 @@
 			"componentType":5126,
 			"count":4,
 			"type":"VEC3",
-			"min":[1.61722014e-07,0,1
+			"min":[0,0,1
 			],
-			"max":[1.61722014e-07,0,1
+			"max":[0,0,1
 			]
 		},
 		{
@@ -49,9 +49,9 @@
 			"componentType":5126,
 			"count":4,
 			"type":"VEC2",
-			"min":[0.287699997,1.02031672
+			"min":[0.287699997,0.0203166604
 			],
-			"max":[0.3398,1.06176674
+			"max":[0.3398,0.0617666841
 			]
 		},
 		{
@@ -152,7 +152,7 @@
 	],
 	"materials":[
 		{
-			"name":"checkerboard",
+			"name":"fontbmpext",
 			"pbrMetallicRoughness":{
 				"baseColorFactor":[0.200000003,0.200000003,0.200000003,1
 				],
@@ -160,6 +160,9 @@
 				"roughnessFactor":0.300000012,
 				"baseColorTexture":{
 					"index":0
+				},
+				"metallicRoughnessTexture":{
+					"index":1
 				}
 			}
 		}
@@ -173,11 +176,18 @@
 	"textures":[
 		{
 			"source":0
+		},
+		{
+			"source":1
 		}
 	],
 	"images":[
 		{
-			"uri":"checkerboard.png",
+			"uri":"FONTS.png",
+			"mimeType":"image/png"
+		},
+		{
+			"uri":"testgeometry_pighead_lowresspec.png",
 			"mimeType":"image/png"
 		}
 	],
