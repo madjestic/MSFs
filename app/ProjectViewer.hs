@@ -271,9 +271,81 @@ initProject resx' resy' =
     , "src/grid.gltf"
     ]
   , fontModels =
-    [ "src/fnt_0.gltf"
+    [ "src/fnt_space.gltf"
+    , "src/fnt_0.gltf"
     , "src/fnt_1.gltf"
     , "src/fnt_2.gltf"
+    , "src/fnt_3.gltf"
+    , "src/fnt_4.gltf"
+    , "src/fnt_5.gltf"
+    , "src/fnt_6.gltf"
+    , "src/fnt_7.gltf"
+    , "src/fnt_8.gltf"
+    , "src/fnt_9.gltf"
+    , "src/fnt_a.gltf"
+    , "src/fnt_b.gltf"
+    , "src/fnt_c.gltf"
+    , "src/fnt_d.gltf"
+    , "src/fnt_e.gltf"
+    , "src/fnt_f.gltf"
+    , "src/fnt_g.gltf"
+    , "src/fnt_h.gltf"
+    , "src/fnt_i.gltf"
+    , "src/fnt_j.gltf"
+    , "src/fnt_k.gltf"
+    , "src/fnt_l.gltf"
+    , "src/fnt_m.gltf"
+    , "src/fnt_n.gltf"
+    , "src/fnt_o.gltf"
+    , "src/fnt_p.gltf"
+    , "src/fnt_q.gltf"
+    , "src/fnt_r.gltf"
+    , "src/fnt_s.gltf"
+    , "src/fnt_t.gltf"
+    , "src/fnt_u.gltf"
+    , "src/fnt_v.gltf"
+    , "src/fnt_w.gltf"
+    , "src/fnt_x.gltf"
+    , "src/fnt_y.gltf"
+    , "src/fnt_z.gltf"
+    , "src/fnt_plus.gltf"
+    , "src/fnt_minus.gltf"
+    , "src/fnt_equal.gltf"
+    , "src/fnt_gt.gltf"
+    , "src/fnt_comma.gltf"
+    , "src/fnt_dot.gltf"
+    , "src/fnt_question.gltf"
+    , "src/fnt_exclam.gltf"
+    , "src/fnt_asterics.gltf"
+    , "src/fnt_slash.gltf"
+    , "src/fnt_semicolon.gltf"
+    , "src/fnt_quote.gltf"
+    , "src/fnt_A.gltf"
+    , "src/fnt_B.gltf"
+    , "src/fnt_C.gltf"
+    , "src/fnt_D.gltf"
+    , "src/fnt_E.gltf"
+    , "src/fnt_F.gltf"
+    , "src/fnt_G.gltf"
+    , "src/fnt_H.gltf"
+    , "src/fnt_I.gltf"
+    , "src/fnt_J.gltf"
+    , "src/fnt_K.gltf"
+    , "src/fnt_L.gltf"
+    , "src/fnt_M.gltf"
+    , "src/fnt_N.gltf"
+    , "src/fnt_O.gltf"
+    , "src/fnt_P.gltf"
+    , "src/fnt_Q.gltf"
+    , "src/fnt_R.gltf"
+    , "src/fnt_S.gltf"
+    , "src/fnt_T.gltf"
+    , "src/fnt_U.gltf"
+    , "src/fnt_V.gltf"
+    , "src/fnt_W.gltf"
+    , "src/fnt_X.gltf"
+    , "src/fnt_Y.gltf"
+    , "src/fnt_Z.gltf"
     , "src/fnt_crosshair.gltf"
     ]
   , preObjects = 
@@ -302,7 +374,7 @@ initProject resx' resy' =
       , ptype          = "default"
       , pidx           = 0
       , uuid           = nil
-      , modelIDXs      = [0,1,2,3]
+      , modelIDXs      = [0..75]
       , presolvers     = []
       , presolverAttrs = []
       , solvers        = [ Identity
@@ -766,13 +838,12 @@ renderWidget cam unis' wgt = case wgt of
   Empty                   -> do return ()
   Cursor  False _ _ _     -> do return ()
   Cursor  _ fnts cpos opts ->
-    --mapM_
     (\dr -> do
         bindUniforms cam unis' (formatDrw (format wgt) dr) 
         let (Descriptor triangles numIndices _) = descriptor dr
         bindVertexArrayObject $= Just triangles
         drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
-        ) (wdrs!!3)
+        ) (wdrs!!75)
   TextBox False _ _ _ _   -> do return ()
   TextBox _ s fnts fmt opts -> 
     mapM_
