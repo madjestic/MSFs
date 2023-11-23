@@ -453,8 +453,8 @@ initGame =
 
 initSettings :: GameSettings
 initSettings = GameSettings
-  { resX = 800
-  , resY = 600 }
+  { resX = 1280
+  , resY = 720 }
 
 type Time = Double
 type Res  = (CInt, CInt)
@@ -843,26 +843,42 @@ renderWidget cam unis' wgt = case wgt of
         let (Descriptor triangles numIndices _) = descriptor dr
         bindVertexArrayObject $= Just triangles
         drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
-        ) (wdrs!!75)
+        ) (wdrs!!75) -- cursor font index is 75
   TextBox False _ _ _ _   -> do return ()
-  TextBox _ s fnts fmt opts -> 
+  TextBox _ s fnts fmt opts -> -- TODO: add String rendering
     mapM_
     (\dr -> do
         bindUniforms cam unis' dr 
         let (Descriptor triangles numIndices _) = descriptor dr
         bindVertexArrayObject $= Just triangles
         drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
-        ) wdrs
-  _ ->
-    mapM_
-    (\dr -> do
-        bindUniforms cam unis' dr 
-        let (Descriptor triangles numIndices _) = descriptor dr
-        bindVertexArrayObject $= Just triangles
-        drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
-        ) wdrs
+        ) $ formatText fmt wdrs s (0,0)
+  _ -> error "Unknown Widget type"
   where
     wdrs = concatMap drws (fonts wgt)
+
+type CursorPos = (Integer, Integer)
+
+formatText :: Format -> [Drawable] -> [String] -> CursorPos -> [Drawable]
+formatText fmt drws [] _  = []
+formatText fmt drws [s] (x,y) =
+  formatString fmt drws s (x,y)
+formatText fmt drws (s:ss) (x,y) =
+  formatText fmt drws [s] (x,y) ++ formatText fmt drws ss (x,y+1)
+
+formatString :: Format -> [Drawable] -> String -> CursorPos -> [Drawable]
+formatString fmt drws []     (x,y) = []
+formatString fmt drws [c]    (x,y) = [formatChar fmt drws c (x,y)]
+formatString fmt drws (c:cs) (x,y) =  formatChar fmt drws c (x,y) : formatString fmt drws cs (x,y)
+
+formatChar :: Format -> [Drawable] -> Char -> CursorPos -> Drawable
+formatChar fmt drws chr cpos =
+  case chr of
+    '0' -> offsetDrw cpos (drws!!0)
+    _   -> drws!!0
+
+offsetDrw :: CursorPos -> Drawable -> Drawable
+offsetDrw cpos drw = drw  
 
 formatDrw :: Format -> Drawable -> Drawable
 formatDrw fmt dr = dr
@@ -1094,6 +1110,23 @@ main = do
           { active = True
           , fonts  = fobjs'
           , cpos   = P (V2 0 0)
+          , optionsW = defaultBackendOptions
+          }
+        , TextBox
+          { active = True
+          , text   = ["foobar"]
+          , fonts  = fobjs'
+          , format = Format
+            {
+              alignment = CC
+            , xres      = resX'
+            , yres      = resY'
+            , xoffset   = 0.0
+            , yoffset   = 0.0
+            , zoffset   = 0.0
+            , soffset   = 0.0
+            , ssize     = 0.0
+            }
           , optionsW = defaultBackendOptions
           }
         ]
