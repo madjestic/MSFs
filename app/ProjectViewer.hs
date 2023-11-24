@@ -956,7 +956,7 @@ offsetDrw cpos drw =
   drw { u_xform = mkTransformationMat rot tr }
   where
     sh  = 0.1
-    sv  = 0.1  
+    sv  = -0.15
     rot = identity :: M33 Double
     tr  =
       (identity::M44 Double)^.translation
@@ -1200,7 +1200,10 @@ main = do
           }
         , TextField
           { active = True
-          , text   = [" SUKANAH!"]
+          , text   =
+              [" SUKANAH!"
+              ,"mnogobukav"
+              ," ebobo?.."]
           , fonts  = fobjs'
           , format = Format
             {
