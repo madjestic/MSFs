@@ -95,7 +95,7 @@ defaultCam =
   , apt        = 50.0
   , foc        = 100.0
   , controller = defaultCamController
-  , mouseS     = -0.01
+  , mouseS     = -0.001
   , keyboardRS = 0.1
   , keyboardTS = 1.0
   }
@@ -125,9 +125,24 @@ data Solver =
     Identity
   | Translate
     { space :: CoordSys
-    , txyz  :: V3 Double
-    , tvel  :: V3 Double
-    } deriving Show
+    , txyz  :: V3 Double -- offset
+    , tvel  :: V3 Double -- velocity
+    }
+  | Rotate
+    { space :: CoordSys
+    , cxyz  :: V3 Double -- center of rotation
+    , rord  :: RotationOrder
+    , rxyz  :: V3 Double
+    , avel  :: V3 Double -- angular velocity
+    }
+  deriving Show
+
+data RotationOrder =
+  XYZ
+
+instance Show RotationOrder where
+  show XYZ = "XYZ"
+  show _   = error "RotationOrder undefined"
 
 data PreObject
   =  PreObject
@@ -362,7 +377,13 @@ initProject resx' resy' =
                          , Translate
                           { space = WorldSpace
                           , txyz  = V3 1.0 0 0
-                          , tvel  = V3 0 0.01 0 }
+                          , tvel  = V3 0.0 0 0 }
+                         , Rotate
+                          { space = WorldSpace
+                          , cxyz  = V3 0 0 0
+                          , rord  = XYZ
+                          , rxyz  = V3 0 0.02 0
+                          , avel  = V3 1.0 0 0 }
                          ]
         , options        = defaultBackendOptions
       }
@@ -378,10 +399,17 @@ initProject resx' resy' =
       , presolvers     = []
       , presolverAttrs = []
       , solvers        = [ Identity
-                         , Translate
-                          { space = WorldSpace
-                           , txyz  = V3 1.0 0 0
-                           , tvel  = V3 0 0.01 0 }
+                         -- , Translate
+                         --  { space = WorldSpace
+                         --   , txyz  = V3 1.0 0 0
+                         --   , tvel  = V3 0 0.01 0 }
+                         -- , Rotate
+                         --  { space = WorldSpace
+                         --  , cxyz  = V3 0 0 0
+                         --  , rord  = XYZ
+                         --  , rxyz  = V3 30.0 0 0
+                         --  , avel  = V3 1.0 0 0
+                         --  }
                          ]
         , options        = defaultBackendOptions
       }
@@ -537,7 +565,7 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                               WorldSpace  ->
                                 obj
                                 { xform0 = pretranslate (xform0 obj) pos
-                                , xform  = translate    (xform0  obj) vel }
+                                , xform  = translate    (xform0 obj) vel }
                                 where
                                   pretranslate :: M44 Double -> V3 Double -> M44 Double
                                   pretranslate mtx0 pos = mtx0 & translation .~ pos
@@ -552,6 +580,37 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                           rot = mtx0^._m33
                                           tr  = (identity::M44 Double)^.translation + vel
                               ObjectSpace -> undefined
+
+                          Rotate cs pos rord rxyz avel ->
+                            obj
+                            { xform0 = pretranslate (xform0 obj) pos 
+                            , xform  = transform    (xform0 obj) }
+                            where
+                              pretranslate :: M44 Double -> V3 Double -> M44 Double
+                              pretranslate mtx0 pos = mtx0 & translation .~ pos
+  
+                              transform :: M44 Double -> M44 Double
+                              transform mtx0 = mtx
+                                where
+                                  mtx =
+                                    mkTransformationMat
+                                    rot
+                                    tr
+                                    where
+                                      tr0    = mtx0^.translation
+                                      prerot =
+                                        case cs of
+                                          WorldSpace  -> identity :: M33 Double
+                                          ObjectSpace -> mtx0^._m33
+                                      rot    = 
+                                        prerot !*!
+                                        case rord of
+                                          XYZ ->
+                                                fromQuaternion (axisAngle (mtx0^.(_m33._x)) (rxyz^._x)) -- pitch
+                                            !*! fromQuaternion (axisAngle (mtx0^.(_m33._y)) (rxyz^._y)) -- yaw
+                                            !*! fromQuaternion (axisAngle (mtx0^.(_m33._z)) (rxyz^._z)) -- roll
+                                      tr     = (identity::M44 Double)^.translation
+
                           _ -> error $ "solver " ++ show slv ++ " is not found"
 
           --updateGUI :: StateT Game IO ()
