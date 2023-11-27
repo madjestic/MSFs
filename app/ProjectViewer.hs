@@ -373,18 +373,24 @@ initProject resx' resy' =
       , modelIDXs      = [0,1]
       , presolvers     = []
       , presolverAttrs = []
-      , solvers        = [ Identity
-                         , Translate
-                          { space = WorldSpace
-                          , txyz  = V3 1.0 0 0
-                          , tvel  = V3 0.0 0 0 }
-                         , Rotate
-                          { space = WorldSpace
-                          , cxyz  = V3 0 0 0
-                          , rord  = XYZ
-                          , rxyz  = V3 0 0.02 0
-                          , avel  = V3 1.0 0 0 }
-                         ]
+      , solvers        =
+        [ Identity
+        , Translate
+          { space = WorldSpace
+          , txyz  = V3 2 0 0
+          , tvel  = V3 0.0 0 0 }
+        , Rotate
+          { space = ObjectSpace
+          , cxyz  = V3 0 0 0
+          , rord  = XYZ
+          , rxyz  = V3 0 0 (-0.5)
+          , avel  = V3 1.0 0 0 }
+        -- , Translate
+        --  { space = WorldSpace
+        --  , txyz  = V3 1.1 0 0
+        --  , tvel  = V3 0.0 0 0 }
+         , Identity
+         ]
         , options        = defaultBackendOptions
       }
     ]
@@ -399,19 +405,8 @@ initProject resx' resy' =
       , presolvers     = []
       , presolverAttrs = []
       , solvers        = [ Identity
-                         -- , Translate
-                         --  { space = WorldSpace
-                         --   , txyz  = V3 1.0 0 0
-                         --   , tvel  = V3 0 0.01 0 }
-                         -- , Rotate
-                         --  { space = WorldSpace
-                         --  , cxyz  = V3 0 0 0
-                         --  , rord  = XYZ
-                         --  , rxyz  = V3 30.0 0 0
-                         --  , avel  = V3 1.0 0 0
-                         --  }
                          ]
-        , options        = defaultBackendOptions
+      , options        = defaultBackendOptions
       }
     ]
   , cameras    = [ defaultCam ]
@@ -553,22 +548,22 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                       (!@!) obj0 obj1 =
                         obj0
                         {
-                          xform0 = xform0 obj1
-                        , xform  = xform  obj1 !*! xform  obj0 }
+                          xform0 = xform0 obj1 !*! xform0 obj0
+                        , xform  = xform  obj1 !*! xform  obj0
+                        }
                        
                       solve :: Object -> Solver -> Object
                       solve obj slv =
                         case slv of
-                          Identity -> obj
+                          Identity -> obj { xform0 = identity }
                           Translate cs pos vel ->
                             case cs of
                               WorldSpace  ->
                                 obj
-                                { xform0 = pretranslate (xform0 obj) pos
-                                , xform  = translate    (xform0 obj) vel }
+                                { xform0 = identity & translation .~ pos
+                                , xform  = identity--translate (xform0 obj) vel
+                                }
                                 where
-                                  pretranslate :: M44 Double -> V3 Double -> M44 Double
-                                  pretranslate mtx0 pos = mtx0 & translation .~ pos
                                   translate :: M44 Double -> V3 Double -> M44 Double
                                   translate mtx0 vel0 = mtx
                                     where
@@ -579,16 +574,17 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                         where
                                           rot = mtx0^._m33
                                           tr  = (identity::M44 Double)^.translation + vel
+                                          --tr  = mtx0^.translation + vel
                               ObjectSpace -> undefined
 
                           Rotate cs pos rord rxyz avel ->
                             obj
-                            { xform0 = pretranslate (xform0 obj) pos 
-                            , xform  = transform    (xform0 obj) }
+                            { --xform0 = xform0 obj & translation .~ pos
+                              --xform0 = identity -- & translation .~ pos
+                              xform0  = transform    (xform0 obj)
+                              --xform  = transform    (pretranslate (xform0 obj) pos)
+                            }
                             where
-                              pretranslate :: M44 Double -> V3 Double -> M44 Double
-                              pretranslate mtx0 pos = mtx0 & translation .~ pos
-  
                               transform :: M44 Double -> M44 Double
                               transform mtx0 = mtx
                                 where
@@ -597,19 +593,21 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                     rot
                                     tr
                                     where
-                                      tr0    = mtx0^.translation
+                                      --tr0    = mtx0^.translation
                                       prerot =
                                         case cs of
                                           WorldSpace  -> identity :: M33 Double
                                           ObjectSpace -> mtx0^._m33
                                       rot    = 
-                                        prerot !*!
+                                        --prerot !*!
+                                        identity !*!
                                         case rord of
                                           XYZ ->
                                                 fromQuaternion (axisAngle (mtx0^.(_m33._x)) (rxyz^._x)) -- pitch
                                             !*! fromQuaternion (axisAngle (mtx0^.(_m33._y)) (rxyz^._y)) -- yaw
                                             !*! fromQuaternion (axisAngle (mtx0^.(_m33._z)) (rxyz^._z)) -- roll
-                                      tr     = (identity::M44 Double)^.translation
+                                      tr     = (identity::M44 Double)^.translation -- + V3 0.01 0 0
+                                      --tr     = mtx0^.translation -- + V3 0.01 0 0
 
                           _ -> error $ "solver " ++ show slv ++ " is not found"
 
