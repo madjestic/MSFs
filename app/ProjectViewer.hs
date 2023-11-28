@@ -169,8 +169,7 @@ data PreObject
 
 data Object
   =  Object
-     { xform0   :: M44 Double
-     , xform    :: M44 Double
+     { xform    :: M44 Double
      , drws     :: [Drawable]
      , slvrs    :: [Solver]
      } deriving Show
@@ -217,8 +216,7 @@ toObject proj txTuples' dms' pobj = do
 
     obj =
       Object
-      { xform0 = identity :: M44 Double
-      , xform  = identity :: M44 Double
+      { xform  = identity :: M44 Double
       , drws   = drs
       , slvrs  = solvers pobj }
 
@@ -377,18 +375,18 @@ initProject resx' resy' =
         [ Identity
         , Translate
           { space = WorldSpace
-          , txyz  = V3 2 0 0
-          , tvel  = V3 0.0 0 0 }
+          , txyz  = V3 1.1 0 0
+          , tvel  = V3 0.1 0 0 }
         , Rotate
           { space = ObjectSpace
           , cxyz  = V3 0 0 0
           , rord  = XYZ
-          , rxyz  = V3 0 0 (-0.5)
+          , rxyz  = V3 0 0 (0.5)
           , avel  = V3 1.0 0 0 }
-        -- , Translate
-        --  { space = WorldSpace
-        --  , txyz  = V3 1.1 0 0
-        --  , tvel  = V3 0.0 0 0 }
+        , Translate
+         { space = WorldSpace
+         , txyz  = V3 1.1 0 0
+         , tvel  = V3 0.0 0 0 }
          , Identity
          ]
         , options        = defaultBackendOptions
@@ -543,46 +541,27 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                 solveObjs :: Game -> Game
                 solveObjs g0 =
                   g0 { objs = (\obj -> foldr1 (!@!) $ solve obj <$> slvrs obj ) <$> objs g0}
-                    where
+                  -- TODO: updateSolvers :: Object -> [Solver] -> [Solver]
+                  where
                       (!@!) :: Object -> Object -> Object
                       (!@!) obj0 obj1 =
-                        obj0
-                        {
-                          xform0 = xform0 obj1 !*! xform0 obj0
-                        , xform  = xform  obj1 !*! xform  obj0
-                        }
+                        obj0 { xform  = xform obj1 !*! xform obj0 }
                        
                       solve :: Object -> Solver -> Object
                       solve obj slv =
                         case slv of
-                          Identity -> obj { xform0 = identity }
+                          Identity -> obj { xform = identity }
                           Translate cs pos vel ->
                             case cs of
                               WorldSpace  ->
                                 obj
-                                { xform0 = identity & translation .~ pos
-                                , xform  = identity--translate (xform0 obj) vel
+                                { xform  = identity & translation .~ (pos) -- TODO: pos + vel <- updateSolver
                                 }
-                                where
-                                  translate :: M44 Double -> V3 Double -> M44 Double
-                                  translate mtx0 vel0 = mtx
-                                    where
-                                      mtx =
-                                        mkTransformationMat
-                                        rot
-                                        tr
-                                        where
-                                          rot = mtx0^._m33
-                                          tr  = (identity::M44 Double)^.translation + vel
-                                          --tr  = mtx0^.translation + vel
                               ObjectSpace -> undefined
 
                           Rotate cs pos rord rxyz avel ->
                             obj
-                            { --xform0 = xform0 obj & translation .~ pos
-                              --xform0 = identity -- & translation .~ pos
-                              xform0  = transform    (xform0 obj)
-                              --xform  = transform    (pretranslate (xform0 obj) pos)
+                            { xform = transform identity
                             }
                             where
                               transform :: M44 Double -> M44 Double
@@ -593,21 +572,14 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                     rot
                                     tr
                                     where
-                                      --tr0    = mtx0^.translation
-                                      prerot =
-                                        case cs of
-                                          WorldSpace  -> identity :: M33 Double
-                                          ObjectSpace -> mtx0^._m33
                                       rot    = 
-                                        --prerot !*!
                                         identity !*!
                                         case rord of
                                           XYZ ->
                                                 fromQuaternion (axisAngle (mtx0^.(_m33._x)) (rxyz^._x)) -- pitch
                                             !*! fromQuaternion (axisAngle (mtx0^.(_m33._y)) (rxyz^._y)) -- yaw
                                             !*! fromQuaternion (axisAngle (mtx0^.(_m33._z)) (rxyz^._z)) -- roll
-                                      tr     = (identity::M44 Double)^.translation -- + V3 0.01 0 0
-                                      --tr     = mtx0^.translation -- + V3 0.01 0 0
+                                      tr     = (identity::M44 Double)^.translation
 
                           _ -> error $ "solver " ++ show slv ++ " is not found"
 
@@ -1008,6 +980,7 @@ formatChar fmt drws chr cpos =
     'Z' -> offsetDrw cpos (drws!!74)
     _   -> head drws
 
+  
 offsetDrw :: CursorPos -> Drawable -> Drawable
 offsetDrw cpos drw =
   drw { u_xform = mkTransformationMat rot tr }
@@ -1026,11 +999,11 @@ offsetDrw cpos drw =
 formatDrw :: Format -> Drawable -> Drawable
 formatDrw fmt dr = dr
 
+  
 renderObject :: Camera -> Uniforms -> Object -> IO ()
 renderObject cam unis' obj = do
   mapM_ (\dr -> do
-            -- pass object's transform and prestransform matrix composition to Drawable            
-            bindUniforms cam unis' dr {u_xform = (xform0 obj) !*! (xform obj)} 
+            bindUniforms cam unis' dr {u_xform = (xform obj)} 
             let (Descriptor triangles numIndices _) = descriptor dr
             bindVertexArrayObject $= Just triangles
             drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
