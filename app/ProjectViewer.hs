@@ -376,18 +376,18 @@ initProject resx' resy' =
         , Translate
           { space = WorldSpace
           , txyz  = V3 1.1 0 0
-          , tvel  = V3 0.1 0 0 }
+          , tvel  = V3 0.0 0 0 }
         , Rotate
           { space = ObjectSpace
-          , cxyz  = V3 0 0 0
+          , cxyz  = V3 1.1 0 0
           , rord  = XYZ
-          , rxyz  = V3 0 0 (0.5)
-          , avel  = V3 1.0 0 0 }
-        , Translate
-         { space = WorldSpace
-         , txyz  = V3 1.1 0 0
-         , tvel  = V3 0.0 0 0 }
-         , Identity
+          , rxyz  = V3 0 0 (0.0)
+          , avel  = V3 0 0 0.01 }
+        -- , Translate
+        --  { space = WorldSpace
+        --  , txyz  = V3 1.1 0 0
+        --  , tvel  = V3 0.0 0 0 }
+        --  , Identity
          ]
         , options        = defaultBackendOptions
       }
@@ -537,51 +537,62 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
           updateObjects = do
             modify solveObjs
             return ()
-              where
+              where                  
                 solveObjs :: Game -> Game
                 solveObjs g0 =
-                  g0 { objs = (\obj -> foldr1 (!@!) $ solve obj <$> slvrs obj ) <$> objs g0}
-                  -- TODO: updateSolvers :: Object -> [Solver] -> [Solver]
+                  g0 { objs = (\obj -> foldr1 (!@!) $ solve (obj {slvrs = []}) <$> slvrs obj ) <$> objs g0 }
                   where
-                      (!@!) :: Object -> Object -> Object
-                      (!@!) obj0 obj1 =
-                        obj0 { xform  = xform obj1 !*! xform obj0 }
-                       
-                      solve :: Object -> Solver -> Object
-                      solve obj slv =
-                        case slv of
-                          Identity -> obj { xform = identity }
-                          Translate cs pos vel ->
-                            case cs of
-                              WorldSpace  ->
-                                obj
-                                { xform  = identity & translation .~ (pos) -- TODO: pos + vel <- updateSolver
-                                }
-                              ObjectSpace -> undefined
+                    (!@!) :: Object -> Object -> Object
+                    (!@!) obj0 obj1 =
+                      obj0
+                      { xform = xform obj1 !*! xform obj0
+                      , slvrs = slvrs obj0 ++ slvrs obj1
+                      }
+                     
+                    updateSolver :: Solver -> Solver
+                    updateSolver slv =
+                      case slv of
+                        Identity                 -> slv
+                        Translate _ pos vel      -> slv { txyz = pos + vel }
+                        Rotate _ _ _ rxyz' avel' -> slv { rxyz = rxyz' + avel' }
 
-                          Rotate cs pos rord rxyz avel ->
-                            obj
-                            { xform = transform identity
-                            }
-                            where
-                              transform :: M44 Double -> M44 Double
-                              transform mtx0 = mtx
-                                where
-                                  mtx =
-                                    mkTransformationMat
-                                    rot
-                                    tr
-                                    where
-                                      rot    = 
-                                        identity !*!
-                                        case rord of
-                                          XYZ ->
-                                                fromQuaternion (axisAngle (mtx0^.(_m33._x)) (rxyz^._x)) -- pitch
-                                            !*! fromQuaternion (axisAngle (mtx0^.(_m33._y)) (rxyz^._y)) -- yaw
-                                            !*! fromQuaternion (axisAngle (mtx0^.(_m33._z)) (rxyz^._z)) -- roll
-                                      tr     = (identity::M44 Double)^.translation
+                    solve :: Object -> Solver -> Object
+                    solve obj slv =
+                      case slv of
+                        Identity -> obj { xform = identity }
+                        Translate cs pos vel ->
+                          case cs of
+                            WorldSpace  ->
+                              obj
+                              { xform = identity & translation .~ pos
+                              , slvrs = [updateSolver slv]
+                              }
+                            ObjectSpace -> undefined
 
-                          _ -> error $ "solver " ++ show slv ++ " is not found"
+                        Rotate cs pos rord rxyz avel ->
+                          obj
+                          { xform = transform identity
+                          , slvrs = [updateSolver slv]
+                          }
+                          where
+                            transform :: M44 Double -> M44 Double
+                            transform mtx0 = mtx
+                              where
+                                mtx =
+                                  mkTransformationMat
+                                  rot
+                                  tr
+                                  where
+                                    rot    = 
+                                      identity !*!
+                                      case rord of
+                                        XYZ ->
+                                              fromQuaternion (axisAngle (mtx0^.(_m33._x)) (rxyz^._x)) -- pitch
+                                          !*! fromQuaternion (axisAngle (mtx0^.(_m33._y)) (rxyz^._y)) -- yaw
+                                          !*! fromQuaternion (axisAngle (mtx0^.(_m33._z)) (rxyz^._z)) -- roll
+                                    tr     = (identity::M44 Double)^.translation
+
+                        _ -> error $ "solver " ++ show slv ++ " is not found"
 
           --updateGUI :: StateT Game IO ()
           --updateGUI = undefined
