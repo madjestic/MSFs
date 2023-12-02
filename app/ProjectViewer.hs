@@ -1065,6 +1065,7 @@ bindUniforms cam' unis' dr =
     uniform location4 $= camera
 
     xform             <- GL.newMatrix RowMajor $ toList' (xformComp u_xform' u_cam') :: IO (GLmatrix GLfloat)
+    --xform             <- GL.newMatrix RowMajor $ toList' (inv44 u_cam' !*! u_xform') :: IO (GLmatrix GLfloat)
     location5         <- SV.get (uniformLocation u_prog' "xform")
     uniform location5 $= xform
 
@@ -1133,11 +1134,12 @@ bindUniforms cam' unis' dr =
         -- | Compensate world space xform with camera position
         -- = Object Position - Camera Position
         xformComp :: M44 Double -> M44 Double -> M44 Double
-        xformComp u_xform' u_cam'= 
-          transpose $
-          fromV3M44
-          ( u_xform' ^._xyz )
-          ( fromV3V4 (transpose u_xform' ^._w._xyz - transpose u_cam' ^._w._xyz) 1.0 ) :: M44 Double
+        xformComp u_xform' u_cam'=
+          (inv44 (identity & translation .~ u_cam'^.translation)) !*! u_xform'
+          -- transpose $
+          -- fromV3M44
+          -- ( u_xform' ^._xyz )
+          -- ( fromV3V4 (transpose u_xform' ^._w._xyz - transpose u_cam' ^._w._xyz) 1.0 ) :: M44 Double
           
 allocateTextures :: Program -> (Int, (Texture, TextureObject)) -> IO ()
 allocateTextures program0 (txid, (tx, txo)) =

@@ -68,7 +68,7 @@ void main()
 
 	gl_Position
 		= persp
-		* cameraRot
+		//* cameraRot
 		* xform
 		* position;
 	
