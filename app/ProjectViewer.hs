@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 module Main where
 
-import           SDL hiding (Texture)
+import           SDL hiding (Texture, normalize)
 import           Control.Concurrent
 import           Control.Monad (unless, when)
 import           Control.Monad.IO.Class
@@ -18,7 +18,7 @@ import           Control.Monad.Trans.MSF.Except
 import Foreign (sizeOf, peekArray, castPtr)
 import           Foreign.C.Types  
 import           Unsafe.Coerce
-import           Graphics.Rendering.OpenGL as GL
+import           Graphics.Rendering.OpenGL as GL hiding (Select, normalize)
 import           Foreign.Ptr (plusPtr, nullPtr, Ptr)
 import           Foreign.Marshal.Array (withArray)  
 import           Codec.GlTF as GlTF
@@ -34,9 +34,9 @@ import           GHC.Float
 import           Graphics.Rendering.OpenGL (VertexArrayObject, NumArrayIndices, DataType (Double), TextureObject (TextureObject))
 import           Data.StateVar as SV
 import           Codec.GlTF.Mesh (Mesh(..))
-import Geomancy.Vec4
-import Geomancy.Vec3
-import Geomancy.Vec2
+import Geomancy.Vec4 hiding (dot, normalize) 
+import Geomancy.Vec3 hiding (dot, normalize)
+import Geomancy.Vec2 hiding (dot, normalize)
 import RIO.Vector qualified as Vector
 import Codec.GlTF.Buffer qualified as Buffer
 import RIO.ByteString qualified as ByteString
@@ -44,6 +44,7 @@ import Data.Coerce (Coercible, coerce)
 import Data.UUID
 import Linear.Projection         as LP        (infinitePerspective)
 import Linear.Matrix
+import Linear.Metric (dot, normalize)
 import Data.Maybe (fromMaybe)
 import Data.Set as DS ( fromList, toList )
 import GHC.Generics
@@ -61,6 +62,8 @@ import Graphics.RedViz.GLUtil.JuicyTextures
 import Graphics.RedViz.GLUtil                 (readTexture, texture2DWrap)
 import Graphics.RedViz.Rendering (bindTexture, bindTexture', loadTex)
 import Graphics.RedViz.Material as R
+
+import Debug.Trace as DT
 
 import RIO (throwString)
 
@@ -106,9 +109,9 @@ defaultCamController =
     { debug = (0,0)
     , transform =  
       (V4
-        (V4 1 0 0 0)  -- <- . . . x ...
-        (V4 0 1 0 0)  -- <- . . . y ...
-        (V4 0 0 1 10) -- <- . . . z-component of transform
+        (V4 1 0 0 0)    -- <- . . . x ...
+        (V4 0 1 0 0)    -- <- . . . y ...
+        (V4 0 0 1 10)   -- <- . . . z-component of transform
         (V4 0 0 0 1))
     , vel  = (V3 0 0 0) -- velocity
     , ypr  = (V3 0 0 0) -- rotation
@@ -135,6 +138,7 @@ data Solver =
     , rxyz  :: V3 Double
     , avel  :: V3 Double -- angular velocity
     }
+  | Select
   deriving Show
 
 data RotationOrder =
@@ -172,7 +176,17 @@ data Object
      { xform    :: M44 Double
      , drws     :: [Drawable]
      , slvrs    :: [Solver]
+     , selected :: Bool
      } deriving Show
+
+initObj :: Object
+initObj =
+  Object
+  { xform    = identity :: M44 Double
+  , drws     = []
+  , slvrs    = []
+  , selected = False
+  }
 
 toObjects :: Project -> [(Texture, TextureObject)] -> [[(Descriptor, R.Material)]]-> IO [Object]
 toObjects prj txTuples dms = mapM (toObject prj txTuples dms) (preObjects prj)
@@ -207,7 +221,6 @@ toObject proj txTuples' dms' pobj = do
       0.0
       (resX, resY)
       (camera initGame)
-      --testM44
       (identity :: M44 Double) -- TODO: add result based on solvers composition
       defaultBackendOptions
       txTuples
@@ -216,9 +229,10 @@ toObject proj txTuples' dms' pobj = do
 
     obj =
       Object
-      { xform  = identity :: M44 Double
-      , drws   = drs
-      , slvrs  = solvers pobj }
+      { xform    = identity :: M44 Double
+      , drws     = drs
+      , slvrs    = solvers pobj
+      , selected = False }
 
   return obj
 
@@ -373,22 +387,28 @@ initProject resx' resy' =
       , presolverAttrs = []
       , solvers        =
         [ Identity
+        -- , Rotate
+        --   { space = ObjectSpace
+        --   , cxyz  = V3 0 0 0
+        --   , rord  = XYZ
+        --   , rxyz  = V3 0 0 (0.5)
+        --   , avel  = V3 0 0 0.01 }
         , Translate
           { space = WorldSpace
           , txyz  = V3 1.1 0 0
           , tvel  = V3 0.0 0 0 }
-        , Rotate
-          { space = ObjectSpace
-          , cxyz  = V3 1.1 0 0
-          , rord  = XYZ
-          , rxyz  = V3 0 0 (0.0)
-          , avel  = V3 0 0 0.01 }
+        -- , Rotate
+        --   { space = ObjectSpace
+        --   , cxyz  = V3 0 0 0
+        --   , rord  = XYZ
+        --   , rxyz  = V3 0 0 (0.5)
+        --   , avel  = V3 0 0 0.01 }
         -- , Translate
         --  { space = WorldSpace
         --  , txyz  = V3 1.1 0 0
         --  , tvel  = V3 0.0 0 0 }
-        --  , Identity
-         ]
+        , Select
+        ]
         , options        = defaultBackendOptions
       }
     ]
@@ -528,18 +548,25 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
 
     gameLoop' :: StateT Game IO Bool
     gameLoop' = do
-
       updateObjects
       --updateGUI
       handleEvents
         where
           updateObjects :: StateT Game IO ()
           updateObjects = do
+            --liftIO $ print ""
+            TMSF.get >>= (liftIO . debug)
             modify solveObjs
             return ()
-              where                  
+              where
+                debug :: Game -> IO ()
+                debug g0 = do
+                  let result = selected . head $ objs g0
+                  print result
+                
                 solveObjs :: Game -> Game
                 solveObjs g0 =
+                  --TMSF.get >>= (liftIO . print)
                   g0 { objs = (\obj -> foldr1 (!@!) $ solve (obj {slvrs = []}) <$> slvrs obj ) <$> objs g0 }
                   where
                     (!@!) :: Object -> Object -> Object
@@ -547,14 +574,17 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                       obj0
                       { xform = xform obj1 !*! xform obj0
                       , slvrs = slvrs obj0 ++ slvrs obj1
+                      , selected = selected obj1
                       }
                      
-                    updateSolver :: Solver -> Solver
-                    updateSolver slv =
+                    updateSolver :: Object -> Solver -> Solver
+                    updateSolver obj slv =
                       case slv of
-                        Identity                 -> slv
-                        Translate _ pos vel      -> slv { txyz = pos + vel }
-                        Rotate _ _ _ rxyz' avel' -> slv { rxyz = rxyz' + avel' }
+                        Identity               -> slv
+                        Translate _ pos vel    -> slv { txyz   = pos  + vel }
+                        Rotate _ _ _ rxyz avel -> slv { rxyz   = rxyz + avel }
+                        Select                 -> slv
+                        _                      -> slv
 
                     solve :: Object -> Solver -> Object
                     solve obj slv =
@@ -565,14 +595,14 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                             WorldSpace  ->
                               obj
                               { xform = identity & translation .~ pos
-                              , slvrs = [updateSolver slv]
+                              , slvrs = [updateSolver obj slv]
                               }
                             ObjectSpace -> undefined
 
                         Rotate cs pos rord rxyz avel ->
                           obj
                           { xform = transform identity
-                          , slvrs = [updateSolver slv]
+                          , slvrs = [updateSolver obj slv]
                           }
                           where
                             transform :: M44 Double -> M44 Double
@@ -591,6 +621,20 @@ updateGame = gameLoop `untilMaybe` gameQuit `catchMaybe` exit
                                           !*! fromQuaternion (axisAngle (mtx0^.(_m33._y)) (rxyz^._y)) -- yaw
                                           !*! fromQuaternion (axisAngle (mtx0^.(_m33._z)) (rxyz^._z)) -- roll
                                     tr     = (identity::M44 Double)^.translation
+                        Select ->
+                          initObj
+                          { selected = isSelected (camera g0) (xform obj^.translation) 0.1
+                          , slvrs    = [updateSolver obj slv]
+                          }
+                          where
+                            isSelected :: Camera -> V3 Double -> Double -> Bool
+                            isSelected cam centroid radius = s
+                              where
+                                cxform          = transform . controller $ cam
+                                camera_position = (transform . controller $ cam)^.translation
+                                camera_lookat   = V3 0 0 (-1) *! cxform^._m33
+                                ivec            = normalize $ centroid - camera_position :: V3 Double
+                                s               = dot ivec camera_lookat > 1.0 - atan (radius / distance centroid camera_position) / pi
 
                         _ -> error $ "solver " ++ show slv ++ " is not found"
 
@@ -1064,8 +1108,9 @@ bindUniforms cam' unis' dr =
     location4         <- SV.get (uniformLocation u_prog' "camera")
     uniform location4 $= camera
 
-    xform             <- GL.newMatrix RowMajor $ toList' (xformComp u_xform' u_cam') :: IO (GLmatrix GLfloat)
-    --xform             <- GL.newMatrix RowMajor $ toList' (inv44 u_cam' !*! u_xform') :: IO (GLmatrix GLfloat)
+    -- | Compensate world space xform with camera position
+    -- = Object Position - Camera Position
+    xform             <- GL.newMatrix RowMajor $ toList' (inv44 (identity & translation .~ u_cam'^.translation) !*! u_xform') :: IO (GLmatrix GLfloat)
     location5         <- SV.get (uniformLocation u_prog' "xform")
     uniform location5 $= xform
 
@@ -1131,15 +1176,6 @@ bindUniforms cam' unis' dr =
     bindBuffer ElementArrayBuffer $= Nothing
       where        
         toList' = fmap realToFrac.concat.(fmap DF.toList.DF.toList) :: V4 (V4 Double) -> [GLfloat]
-        -- | Compensate world space xform with camera position
-        -- = Object Position - Camera Position
-        xformComp :: M44 Double -> M44 Double -> M44 Double
-        xformComp u_xform' u_cam'=
-          (inv44 (identity & translation .~ u_cam'^.translation)) !*! u_xform'
-          -- transpose $
-          -- fromV3M44
-          -- ( u_xform' ^._xyz )
-          -- ( fromV3V4 (transpose u_xform' ^._w._xyz - transpose u_cam' ^._w._xyz) 1.0 ) :: M44 Double
           
 allocateTextures :: Program -> (Int, (Texture, TextureObject)) -> IO ()
 allocateTextures program0 (txid, (tx, txo)) =
@@ -1147,19 +1183,6 @@ allocateTextures program0 (txid, (tx, txo)) =
     activeTexture $= TextureUnit (fromIntegral txid)
     textureBinding Texture2D $= Just txo
     return ()
-
-fromList :: [a] -> M44 a
-fromList xs = V4
-              (V4 (head xs ) (xs!!1 )(xs!!2 )(xs!!3))
-              (V4 (xs!!4 ) (xs!!5 )(xs!!6 )(xs!!7))
-              (V4 (xs!!8 ) (xs!!9 )(xs!!10)(xs!!11))
-              (V4 (xs!!12) (xs!!13)(xs!!14)(xs!!15))
-
-fromV3M44 :: V3 (V4 a) -> V4 a -> M44 a
-fromV3M44 v3 = V4 (v3 ^. _x) (v3 ^. _y) (v3 ^. _z)
-
-fromV3V4 :: V3 a -> a -> V4 a
-fromV3V4 v3 = V4 (v3 ^. _x) (v3 ^. _y) (v3 ^. _z)
 
 animate :: Window
         -> DTime
@@ -1186,7 +1209,7 @@ main = do
     initProject'= Main.initProject resX' resY'
     models'     = models     initProject' :: [FilePath]
     fonts'      = fontModels initProject' :: [FilePath]
-  print $ "fonts' length : " ++ show (length fonts')
+  --print $ "fonts' length : " ++ show (length fonts')
   
   -- TODO: if UUIDs are needed, generate like so:
   -- (const nextRandom) ()
@@ -1202,7 +1225,7 @@ main = do
   putStrLn "Compiling Materials"
   dms  <- mapM toDescriptorMat models' :: IO [[(Descriptor, R.Material)]]
   fdms <- mapM toDescriptorMat fonts'  :: IO [[(Descriptor, R.Material)]] --
-  print $ "fdms length : " ++ show (length fdms)
+  --print $ "fdms length : " ++ show (length fdms)
     
   let -- this basically collects all the materials, reads textures from them and uniquely binds
     txs   = concatMap (\(_,m) -> R.textures m) $ concat dms
@@ -1216,10 +1239,10 @@ main = do
   putStrLn "Binding Textures..."
   txTuples  <- mapM (bindTexture'  txord) txs  :: IO [(Texture, TextureObject)]
   ftxTuples <- mapM (bindTexture' ftxord) ftxs :: IO [(Texture, TextureObject)]
-  print $ "ftxTuples length : " ++ show (length ftxTuples)
+  --print $ "ftxTuples length : " ++ show (length ftxTuples)
   objs'    <- toObjects     initProject' txTuples  dms
   fobjs'   <- toFontObjects initProject' ftxTuples fdms
-  print $ "fobjs' length : " ++ show (length fobjs')
+  --print $ "fobjs' length : " ++ show (length fobjs')
 
   animate
     window

@@ -64,7 +64,7 @@ void main()
 	// 		 , xform[1].xyz
 	// 		 , xform[2].xyz );
 
-	vec4 position = vec4(vPosition,1.0);	
+	vec4 position = vec4(vPosition + vec3(0,0,1.0),1.0);	
 
 	gl_Position
 		= persp
